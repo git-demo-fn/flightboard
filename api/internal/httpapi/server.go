@@ -32,6 +32,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/work-orders", s.createWorkOrder)
 	s.mux.HandleFunc("GET /api/work-orders/summary", s.workOrderSummary)
 	s.mux.HandleFunc("GET /api/work-orders/{id}", s.getWorkOrder)
+	s.mux.HandleFunc("GET /api/work-orders/{id}/progress", s.workOrderProgress)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/status", s.setStatus)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-in", s.checkIn)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-out", s.checkOut)
@@ -107,6 +108,53 @@ func (s *Server) getWorkOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	wo, err := s.store.GetWorkOrder(id)
 	s.respond(w, http.StatusOK, wo, err)
+}
+
+type taskCounts struct {
+	Done  int `json:"done"`
+	Total int `json:"total"`
+}
+
+type taskProgress struct {
+	Done    int                                `json:"done"`
+	Total   int                                `json:"total"`
+	Percent int                                `json:"percent"`
+	Groups  map[workorder.TaskGroup]taskCounts `json:"groups"`
+}
+
+func progressForTasks(tasks []workorder.Task) taskProgress {
+	out := taskProgress{
+		Total: len(tasks),
+		Groups: map[workorder.TaskGroup]taskCounts{
+			workorder.TaskPrep: {}, workorder.TaskOnSite: {}, workorder.TaskPost: {},
+		},
+	}
+	for _, task := range tasks {
+		counts := out.Groups[task.Group]
+		counts.Total++
+		if task.Done {
+			counts.Done++
+			out.Done++
+		}
+		out.Groups[task.Group] = counts
+	}
+	if out.Total > 0 {
+		out.Percent = out.Done * 100 / out.Total
+	}
+	return out
+}
+
+func (s *Server) workOrderProgress(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	wo, err := s.store.GetWorkOrder(id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, progressForTasks(wo.Tasks))
 }
 
 func (s *Server) createWorkOrder(w http.ResponseWriter, r *http.Request) {

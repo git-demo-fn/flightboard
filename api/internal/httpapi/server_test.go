@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/git-demo-fn/flightboard/api/internal/store"
+	"github.com/git-demo-fn/flightboard/api/internal/workorder"
 )
 
 func newTestServer(t *testing.T) *Server {
@@ -150,6 +151,135 @@ func TestGetWorkOrder(t *testing.T) {
 	}
 	if rec := do(t, s, "GET", "/api/work-orders/abc", ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad id code = %d", rec.Code)
+	}
+}
+
+func TestWorkOrderProgress(t *testing.T) {
+	s := newTestServer(t)
+	for _, tt := range []struct {
+		name    string
+		id      int
+		done    int
+		total   int
+		percent int
+		groups  map[workorder.TaskGroup]taskCounts
+	}{
+		{
+			name: "not started", id: 9631801, done: 0, total: 5, percent: 0,
+			groups: map[workorder.TaskGroup]taskCounts{
+				workorder.TaskPrep: {Done: 0, Total: 1}, workorder.TaskOnSite: {Done: 0, Total: 3},
+				workorder.TaskPost: {Done: 0, Total: 1},
+			},
+		},
+		{
+			name: "in progress", id: 9631810, done: 2, total: 4, percent: 50,
+			groups: map[workorder.TaskGroup]taskCounts{
+				workorder.TaskPrep: {Done: 1, Total: 1}, workorder.TaskOnSite: {Done: 1, Total: 2},
+				workorder.TaskPost: {Done: 0, Total: 1},
+			},
+		},
+		{
+			name: "complete", id: 9631818, done: 4, total: 4, percent: 100,
+			groups: map[workorder.TaskGroup]taskCounts{
+				workorder.TaskPrep: {Done: 1, Total: 1}, workorder.TaskOnSite: {Done: 2, Total: 2},
+				workorder.TaskPost: {Done: 1, Total: 1},
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(t, s, "GET", "/api/work-orders/"+strconv.Itoa(tt.id)+"/progress", "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q", got)
+			}
+			got := decode[taskProgress](t, rec)
+			if got.Done != tt.done || got.Total != tt.total || got.Percent != tt.percent {
+				t.Errorf("progress = %+v, want done %d total %d percent %d", got, tt.done, tt.total, tt.percent)
+			}
+			if !maps.Equal(got.Groups, tt.groups) {
+				t.Errorf("groups = %v, want %v", got.Groups, tt.groups)
+			}
+		})
+	}
+}
+
+func TestWorkOrderProgressErrors(t *testing.T) {
+	for _, tt := range []struct {
+		id   string
+		code int
+		err  string
+	}{
+		{id: "1", code: http.StatusNotFound, err: "not found"},
+		{id: "abc", code: http.StatusBadRequest, err: "id must be a number"},
+	} {
+		t.Run(tt.id, func(t *testing.T) {
+			rec := do(t, newTestServer(t), "GET", "/api/work-orders/"+tt.id+"/progress", "")
+			if rec.Code != tt.code {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q", got)
+			}
+			if got := decode[map[string]string](t, rec); !maps.Equal(got, map[string]string{"error": tt.err}) {
+				t.Errorf("error body = %v, want error %q", got, tt.err)
+			}
+		})
+	}
+}
+
+func TestWorkOrderProgressAfterTaskUpdate(t *testing.T) {
+	s := newTestServer(t)
+	body := `{"title":"Task progress","status":"Draft","tasks":[
+		{"id":"a","group":"On Site","done":true},
+		{"id":"b","group":"On Site","done":false},
+		{"id":"c","group":"On Site","done":false}]}`
+	rec := do(t, s, "POST", "/api/work-orders", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create code = %d body %s", rec.Code, rec.Body)
+	}
+	path := "/api/work-orders/" + strconv.Itoa(decode[woJSON](t, rec).ID)
+	for _, tt := range []struct {
+		done    bool
+		count   int
+		percent int
+	}{
+		{done: true, count: 2, percent: 66},
+		{done: true, count: 2, percent: 66},
+		{done: false, count: 1, percent: 33},
+	} {
+		rec = do(t, s, "PATCH", path+"/tasks/b", `{"done":`+strconv.FormatBool(tt.done)+`}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("update code = %d body %s", rec.Code, rec.Body)
+		}
+		rec = do(t, s, "GET", path+"/progress", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("progress code = %d body %s", rec.Code, rec.Body)
+		}
+		got := decode[taskProgress](t, rec)
+		if got.Done != tt.count || got.Total != 3 || got.Percent != tt.percent {
+			t.Errorf("progress = %+v, want done %d total 3 percent %d", got, tt.count, tt.percent)
+		}
+		wantGroups := map[workorder.TaskGroup]taskCounts{
+			workorder.TaskPrep: {}, workorder.TaskOnSite: {Done: tt.count, Total: 3}, workorder.TaskPost: {},
+		}
+		if !maps.Equal(got.Groups, wantGroups) {
+			t.Errorf("groups = %v, want %v", got.Groups, wantGroups)
+		}
+	}
+}
+
+func TestProgressForNoTasks(t *testing.T) {
+	got := progressForTasks(nil)
+	if got.Done != 0 || got.Total != 0 || got.Percent != 0 {
+		t.Errorf("progress = %+v, want zero counts and percent", got)
+	}
+	wantGroups := map[workorder.TaskGroup]taskCounts{
+		workorder.TaskPrep: {}, workorder.TaskOnSite: {}, workorder.TaskPost: {},
+	}
+	if !maps.Equal(got.Groups, wantGroups) {
+		t.Errorf("groups = %v, want %v", got.Groups, wantGroups)
 	}
 }
 
