@@ -61,6 +61,71 @@ func TestListWorkOrdersFilters(t *testing.T) {
 	}
 }
 
+func TestListWorkOrdersTypeOfWorkFilter(t *testing.T) {
+	s := seeded(t)
+	tests := []struct {
+		name   string
+		filter Filter
+		want   []int
+	}{
+		{
+			name:   "seed type",
+			filter: Filter{TypeOfWork: "Networking"},
+			want:   []int{9631824, 9631820, 9631810, 9631802},
+		},
+		{
+			name:   "different case",
+			filter: Filter{TypeOfWork: "nEtWoRkInG"},
+			want:   []int{9631824, 9631820, 9631810, 9631802},
+		},
+		{
+			name:   "unknown type",
+			filter: Filter{TypeOfWork: "Plumbing"},
+		},
+		{
+			name:   "partial type does not match",
+			filter: Filter{TypeOfWork: "Network"},
+		},
+		{
+			name:   "combined with status",
+			filter: Filter{TypeOfWork: "Networking", Status: workorder.StatusAssigned},
+			want:   []int{9631810},
+		},
+		{
+			name:   "combined with provider",
+			filter: Filter{TypeOfWork: "Networking", ProviderID: "p-101"},
+			want:   []int{9631810},
+		},
+		{
+			name:   "combined with status and provider",
+			filter: Filter{TypeOfWork: "networking", Status: workorder.StatusAssigned, ProviderID: "p-101"},
+			want:   []int{9631810},
+		},
+		{
+			name:   "combined filters with no match",
+			filter: Filter{TypeOfWork: "Networking", Status: workorder.StatusAssigned, ProviderID: "p-103"},
+		},
+		{
+			name:   "empty type preserves other filters",
+			filter: Filter{Status: workorder.StatusAssigned, ProviderID: "p-101"},
+			want:   []int{9631817, 9631810},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.ListWorkOrders(tt.filter)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d work orders, want %d", len(got), len(tt.want))
+			}
+			for i, w := range got {
+				if w.ID != tt.want[i] {
+					t.Errorf("work order at index %d = %d, want %d", i, w.ID, tt.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestCreateWorkOrderAssignsIDAndDefaults(t *testing.T) {
 	s := seeded(t)
 	created, err := s.CreateWorkOrder(workorder.WorkOrder{Title: "New draft", Status: workorder.StatusDraft, ProviderID: "p-101"})
