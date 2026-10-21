@@ -30,6 +30,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/health", s.health)
 	s.mux.HandleFunc("GET /api/work-orders", s.listWorkOrders)
 	s.mux.HandleFunc("POST /api/work-orders", s.createWorkOrder)
+	s.mux.HandleFunc("GET /api/work-orders/summary", s.workOrderSummary)
 	s.mux.HandleFunc("GET /api/work-orders/{id}", s.getWorkOrder)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/status", s.setStatus)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-in", s.checkIn)
@@ -80,6 +81,21 @@ func (s *Server) listWorkOrders(w http.ResponseWriter, r *http.Request) {
 	out := make([]workOrderView, 0, len(list))
 	for _, wo := range list {
 		out = append(out, s.view(wo))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) workOrderSummary(w http.ResponseWriter, _ *http.Request) {
+	list := s.store.ListWorkOrders(store.Filter{})
+	out := struct {
+		Total    int                      `json:"total"`
+		ByStatus map[workorder.Status]int `json:"byStatus"`
+	}{Total: len(list), ByStatus: make(map[workorder.Status]int, len(workorder.Statuses))}
+	for _, status := range workorder.Statuses {
+		out.ByStatus[status] = 0
+	}
+	for _, wo := range list {
+		out.ByStatus[wo.Status]++
 	}
 	writeJSON(w, http.StatusOK, out)
 }
