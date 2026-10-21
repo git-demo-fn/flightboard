@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ var ErrConflict = errors.New("conflict")
 type Filter struct {
 	Status     workorder.Status
 	ProviderID string
+	TypeOfWork string
 }
 
 // Store is a concurrency-safe in-memory store.
@@ -81,6 +83,9 @@ func (s *Store) ListWorkOrders(f Filter) []workorder.WorkOrder {
 			continue
 		}
 		if f.ProviderID != "" && w.ProviderID != f.ProviderID {
+			continue
+		}
+		if f.TypeOfWork != "" && !strings.EqualFold(w.TypeOfWork, f.TypeOfWork) {
 			continue
 		}
 		out = append(out, clone(w))
