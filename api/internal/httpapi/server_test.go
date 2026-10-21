@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -93,6 +95,65 @@ func TestGetWorkOrder(t *testing.T) {
 	}
 	if rec := do(t, s, "GET", "/api/work-orders/abc", ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad id code = %d", rec.Code)
+	}
+}
+
+func TestWorkOrderSummary(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		server   *Server
+		total    int
+		byStatus map[string]int
+	}{
+		{
+			name: "seeded", server: newTestServer(t), total: 25,
+			byStatus: map[string]int{
+				"Draft": 3, "Published": 3, "Routed": 3, "Assigned": 8,
+				"Work Done": 3, "Approved": 2, "Paid": 2, "Cancelled": 1,
+			},
+		},
+		{
+			name: "empty", server: New(store.New()), total: 0,
+			byStatus: map[string]int{
+				"Draft": 0, "Published": 0, "Routed": 0, "Assigned": 0,
+				"Work Done": 0, "Approved": 0, "Paid": 0, "Cancelled": 0,
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(t, tt.server, "GET", "/api/work-orders/summary", "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q", got)
+			}
+			got := decode[struct {
+				Total    int            `json:"total"`
+				ByStatus map[string]int `json:"byStatus"`
+			}](t, rec)
+			if got.Total != tt.total {
+				t.Errorf("total = %d, want %d", got.Total, tt.total)
+			}
+			if !maps.Equal(got.ByStatus, tt.byStatus) {
+				t.Errorf("byStatus = %v, want %v", got.ByStatus, tt.byStatus)
+			}
+		})
+	}
+}
+
+func TestGetEverySeededWorkOrder(t *testing.T) {
+	s := newTestServer(t)
+	for _, wo := range s.store.ListWorkOrders(store.Filter{}) {
+		t.Run(strconv.Itoa(wo.ID), func(t *testing.T) {
+			rec := do(t, s, "GET", "/api/work-orders/"+strconv.Itoa(wo.ID), "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := decode[woJSON](t, rec); got.ID != wo.ID || got.Status != string(wo.Status) {
+				t.Errorf("got work order %+v, want id %d status %q", got, wo.ID, wo.Status)
+			}
+		})
 	}
 }
 
