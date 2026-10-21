@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -59,6 +60,53 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestListWorkOrders(t *testing.T) {
+	s := newTestServer(t)
+	for _, tt := range []struct {
+		name   string
+		query  string
+		status string
+		count  int
+	}{
+		{name: "unfiltered", count: 25},
+		{name: "empty status", query: "?status=", count: 25},
+		{name: "Draft", status: "Draft", count: 3},
+		{name: "Published", status: "Published", count: 3},
+		{name: "Routed", status: "Routed", count: 3},
+		{name: "Assigned", status: "Assigned", count: 8},
+		{name: "Work Done", status: "Work Done", count: 3},
+		{name: "Approved", status: "Approved", count: 2},
+		{name: "Paid", status: "Paid", count: 2},
+		{name: "Cancelled", status: "Cancelled", count: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			query := tt.query
+			if tt.status != "" {
+				query = "?status=" + url.QueryEscape(tt.status)
+			}
+			rec := do(t, s, "GET", "/api/work-orders"+query, "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			list := decode[[]woJSON](t, rec)
+			if len(list) != tt.count {
+				t.Fatalf("count = %d, want %d", len(list), tt.count)
+			}
+			for i, w := range list {
+				if tt.status != "" && w.Status != tt.status {
+					t.Errorf("work order %d status = %q, want %q", w.ID, w.Status, tt.status)
+				}
+				if tt.status == "" && w.ID != 9631825-i {
+					t.Errorf("work order at index %d has id %d, want %d", i, w.ID, 9631825-i)
+				}
+				if i > 0 && list[i-1].ID <= w.ID {
+					t.Errorf("work orders not newest first: %d before %d", list[i-1].ID, w.ID)
+				}
+			}
+		})
+	}
+}
+
 func TestListWorkOrdersExpandsProvider(t *testing.T) {
 	rec := do(t, newTestServer(t), "GET", "/api/work-orders?status=Assigned", "")
 	if rec.Code != http.StatusOK {
@@ -82,6 +130,13 @@ func TestListWorkOrdersBadStatus(t *testing.T) {
 	rec := do(t, newTestServer(t), "GET", "/api/work-orders?status=Lost", "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("code = %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Errorf("Content-Type = %q", got)
+	}
+	got := decode[map[string]string](t, rec)
+	if got["error"] != `unknown status "Lost"` {
+		t.Errorf("error = %q, want %q", got["error"], `unknown status "Lost"`)
 	}
 }
 
