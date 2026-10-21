@@ -267,5 +267,8 @@ func ValidateNew(w WorkOrder) error {
 	if w.Schedule.End.Before(w.Schedule.Start) {
 		return invalid("schedule end must be after start")
 	}
+	if w.Schedule.End.Sub(w.Schedule.Start) > 14*24*time.Hour {
+		return invalid("schedule must not span more than 14 days")
+	}
 	return ValidatePay(w.Pay)
 }

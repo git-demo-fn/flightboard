@@ -131,6 +131,38 @@ func TestValidateNew(t *testing.T) {
 	}
 }
 
+func TestValidateNewScheduleSpan(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  Status
+		span    time.Duration
+		wantErr bool
+	}{
+		{"published exactly 14 days", StatusPublished, 14 * 24 * time.Hour, false},
+		{"published 14 days and 1 minute", StatusPublished, 14*24*time.Hour + time.Minute, true},
+		{"draft with long schedule", StatusDraft, 30 * 24 * time.Hour, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := validPublished()
+			w.Status = tt.status
+			w.Schedule.End = w.Schedule.Start.Add(tt.span)
+			err := ValidateNew(w)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateNew() err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil {
+				if !errors.Is(err, ErrInvalid) {
+					t.Fatalf("error %v does not wrap ErrInvalid", err)
+				}
+				if want := "invalid work order: schedule must not span more than 14 days"; err.Error() != want {
+					t.Fatalf("ValidateNew() err = %q, want %q", err, want)
+				}
+			}
+		})
+	}
+}
+
 func TestCanTransition(t *testing.T) {
 	tests := []struct {
 		from, to Status
