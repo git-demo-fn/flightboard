@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/git-demo-fn/flightboard/api/internal/store"
 	"github.com/git-demo-fn/flightboard/api/internal/workorder"
@@ -151,6 +153,104 @@ func TestGetWorkOrder(t *testing.T) {
 	}
 	if rec := do(t, s, "GET", "/api/work-orders/abc", ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad id code = %d", rec.Code)
+	}
+}
+
+func TestWorkOrderExpenses(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		id   string
+		want []workorder.Expense
+	}{
+		{
+			name: "seeded expenses", id: "9631810",
+			want: []workorder.Expense{
+				{
+					ID: "e1", Category: workorder.ExpenseParts, Description: "Replacement patch cables",
+					AmountCents: 2400, Status: workorder.ExpensePending,
+					CreatedAt: time.Date(2026, 10, 19, 13, 30, 0, 0, time.UTC),
+				},
+				{
+					ID: "e2", Category: workorder.ExpenseMileage, Description: "Travel to the service location",
+					AmountCents: 1800, Status: workorder.ExpenseApproved,
+					CreatedAt: time.Date(2026, 10, 19, 13, 5, 0, 0, time.UTC),
+				},
+			},
+		},
+		{name: "no expenses", id: "9631801", want: []workorder.Expense{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(t, newTestServer(t), "GET", "/api/work-orders/"+tt.id+"/expenses", "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q", got)
+			}
+			got := decode[[]workorder.Expense](t, rec)
+			if got == nil {
+				t.Fatal("expenses must be an array, not null")
+			}
+			if !slices.EqualFunc(got, tt.want, func(a, b workorder.Expense) bool {
+				if !a.CreatedAt.Equal(b.CreatedAt) {
+					return false
+				}
+				a.CreatedAt, b.CreatedAt = time.Time{}, time.Time{}
+				return a == b
+			}) {
+				t.Errorf("expenses = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWorkOrderExpensesNewestFirst(t *testing.T) {
+	s := newTestServer(t)
+	added, err := s.store.AddExpense(9631810, workorder.Expense{
+		Category: workorder.ExpenseTools, Description: "Cable tester rental", AmountCents: 3500,
+	})
+	if err != nil {
+		t.Fatalf("AddExpense: %v", err)
+	}
+	before, err := s.store.Expenses(9631810)
+	if err != nil {
+		t.Fatalf("Expenses: %v", err)
+	}
+	rec := do(t, s, "GET", "/api/work-orders/9631810/expenses", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+	}
+	got := decode[[]workorder.Expense](t, rec)
+	if len(got) != 3 || got[0].ID != added.ID || got[1].ID != "e1" || got[2].ID != "e2" {
+		t.Fatalf("expenses not newest first: %+v", got)
+	}
+	after, err := s.store.Expenses(9631810)
+	if err != nil || !slices.Equal(before, after) {
+		t.Errorf("listing changed stored expenses: %+v, err = %v", after, err)
+	}
+}
+
+func TestWorkOrderExpensesErrors(t *testing.T) {
+	for _, tt := range []struct {
+		id   string
+		code int
+		err  string
+	}{
+		{id: "1", code: http.StatusNotFound, err: "not found"},
+		{id: "abc", code: http.StatusBadRequest, err: "id must be a number"},
+	} {
+		t.Run(tt.id, func(t *testing.T) {
+			rec := do(t, newTestServer(t), "GET", "/api/work-orders/"+tt.id+"/expenses", "")
+			if rec.Code != tt.code {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q", got)
+			}
+			if got := decode[map[string]string](t, rec); !maps.Equal(got, map[string]string{"error": tt.err}) {
+				t.Errorf("error body = %v, want error %q", got, tt.err)
+			}
+		})
 	}
 }
 

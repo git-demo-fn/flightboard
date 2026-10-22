@@ -69,6 +69,7 @@ A change to a status or a pay type usually touches the Go model, `web/src/api/ty
 | `GET /api/work-orders/summary` | Total work orders and counts for every status |
 | `GET /api/work-orders/{id}` | One work order |
 | `GET /api/work-orders/{id}/progress` | Done and total task counts by group and overall, with a rounded-down completion percent |
+| `GET /api/work-orders/{id}/expenses` | Work order expenses, newest first; an empty array if there are none |
 | `POST /api/work-orders/{id}/status` | Move to a new status, body `{"status":"Approved"}` |
 | `POST /api/work-orders/{id}/check-in` | Record check-in, body `{"time":"<RFC 3339>"}` or `{}` for now |
 | `POST /api/work-orders/{id}/check-out` | Record check-out, same body |

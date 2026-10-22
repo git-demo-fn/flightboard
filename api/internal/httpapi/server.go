@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -33,6 +34,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/work-orders/summary", s.workOrderSummary)
 	s.mux.HandleFunc("GET /api/work-orders/{id}", s.getWorkOrder)
 	s.mux.HandleFunc("GET /api/work-orders/{id}/progress", s.workOrderProgress)
+	s.mux.HandleFunc("GET /api/work-orders/{id}/expenses", s.workOrderExpenses)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/status", s.setStatus)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-in", s.checkIn)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-out", s.checkOut)
@@ -108,6 +110,22 @@ func (s *Server) getWorkOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	wo, err := s.store.GetWorkOrder(id)
 	s.respond(w, http.StatusOK, wo, err)
+}
+
+func (s *Server) workOrderExpenses(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	expenses, err := s.store.Expenses(id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	slices.SortStableFunc(expenses, func(a, b workorder.Expense) int {
+		return b.CreatedAt.Compare(a.CreatedAt)
+	})
+	writeJSON(w, http.StatusOK, expenses)
 }
 
 type taskCounts struct {
