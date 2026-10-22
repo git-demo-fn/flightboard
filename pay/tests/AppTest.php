@@ -77,6 +77,20 @@ final class AppTest extends TestCase
         self::assertSame(181.0, $body['total']);
     }
 
+    public function testQuoteWithFractionalDollarExpenses(): void
+    {
+        [$status, $body] = (new App())->handle(
+            'POST',
+            '/quote',
+            '{"type":"Fixed","rate":180,"expenses":[{"category":"Parts","amountCents":10},{"category":"Travel","amountCents":20}]}',
+        );
+
+        self::assertSame(200, $status);
+        self::assertSame(['label' => 'Expense - Parts', 'amount' => 0.1], $body['lines'][1]);
+        self::assertSame(['label' => 'Expense - Travel', 'amount' => 0.2], $body['lines'][2]);
+        self::assertSame(180.3, $body['total']);
+    }
+
     /** @return array<string, array{0: mixed, 1: string}> */
     public static function invalidExpenses(): array
     {
@@ -98,6 +112,10 @@ final class AppTest extends TestCase
             'null expenses' => [null, 'expenses must be a list'],
             'string expenses' => ['Parts', 'expenses must be a list'],
             'object expenses' => [['category' => 'Parts', 'amountCents' => 4599], 'expenses must be a list'],
+            'empty object expenses' => [new \stdClass(), 'expenses must be a list'],
+            'numeric-key object expenses' => [(object) [
+                ['category' => 'Parts', 'amountCents' => 100],
+            ], 'expenses must be a list'],
         ];
     }
 

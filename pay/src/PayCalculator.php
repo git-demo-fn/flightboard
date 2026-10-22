@@ -52,10 +52,12 @@ final class PayCalculator
             $lines[] = ['label' => 'Expense - ' . $expense['category'], 'amount' => (float) $amountCents / 100];
         }
 
+        $total = array_sum(array_column($lines, 'amount'));
+
         return [
             'type' => $type,
             'lines' => $lines,
-            'total' => array_sum(array_column($lines, 'amount')),
+            'total' => $expenses === [] ? $total : round($total, 2),
         ];
     }
 
