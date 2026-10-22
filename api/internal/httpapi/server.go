@@ -292,7 +292,7 @@ func writeStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
-	case errors.Is(err, store.ErrConflict):
+	case errors.Is(err, store.ErrConflict), errors.Is(err, store.ErrPendingExpenses):
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, workorder.ErrInvalid):
 		writeError(w, http.StatusBadRequest, err.Error())
