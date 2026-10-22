@@ -48,14 +48,37 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-// workOrderView is a work order with its provider expanded.
+// workOrderView is a work order with its provider expanded and expense totals.
 type workOrderView struct {
 	workorder.WorkOrder
-	Provider *workorder.Provider `json:"provider"`
+	Provider      *workorder.Provider `json:"provider"`
+	ExpenseTotals expenseTotals       `json:"expenseTotals"`
+}
+
+type expenseTotals struct {
+	Count         int `json:"count"`
+	PendingCents  int `json:"pendingCents"`
+	ApprovedCents int `json:"approvedCents"`
+	RejectedCents int `json:"rejectedCents"`
+}
+
+func totalsForExpenses(expenses []workorder.Expense) expenseTotals {
+	out := expenseTotals{Count: len(expenses)}
+	for _, expense := range expenses {
+		switch expense.Status {
+		case workorder.ExpensePending:
+			out.PendingCents += expense.AmountCents
+		case workorder.ExpenseApproved:
+			out.ApprovedCents += expense.AmountCents
+		case workorder.ExpenseRejected:
+			out.RejectedCents += expense.AmountCents
+		}
+	}
+	return out
 }
 
 func (s *Server) view(w workorder.WorkOrder) workOrderView {
-	v := workOrderView{WorkOrder: w}
+	v := workOrderView{WorkOrder: w, ExpenseTotals: totalsForExpenses(w.Expenses)}
 	if w.ProviderID != "" {
 		if p, err := s.store.GetProvider(w.ProviderID); err == nil {
 			v.Provider = &p
@@ -91,14 +114,21 @@ func (s *Server) listWorkOrders(w http.ResponseWriter, r *http.Request) {
 func (s *Server) workOrderSummary(w http.ResponseWriter, _ *http.Request) {
 	list := s.store.ListWorkOrders(store.Filter{})
 	out := struct {
-		Total    int                      `json:"total"`
-		ByStatus map[workorder.Status]int `json:"byStatus"`
+		Total           int                      `json:"total"`
+		ByStatus        map[workorder.Status]int `json:"byStatus"`
+		PendingExpenses int                      `json:"pendingExpenses"`
 	}{Total: len(list), ByStatus: make(map[workorder.Status]int, len(workorder.Statuses))}
 	for _, status := range workorder.Statuses {
 		out.ByStatus[status] = 0
 	}
 	for _, wo := range list {
 		out.ByStatus[wo.Status]++
+		for _, expense := range wo.Expenses {
+			if expense.Status == workorder.ExpensePending {
+				out.PendingExpenses++
+				break
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

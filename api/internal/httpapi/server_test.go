@@ -54,6 +54,7 @@ type woJSON struct {
 		ID   string `json:"id"`
 		Done bool   `json:"done"`
 	} `json:"tasks"`
+	ExpenseTotals map[string]int `json:"expenseTotals"`
 }
 
 func TestHealth(t *testing.T) {
@@ -154,6 +155,54 @@ func TestGetWorkOrder(t *testing.T) {
 	if rec := do(t, s, "GET", "/api/work-orders/abc", ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad id code = %d", rec.Code)
 	}
+}
+
+func TestWorkOrderExpenseTotals(t *testing.T) {
+	s := newTestServer(t)
+	check := func(wantSeed map[string]int) {
+		t.Helper()
+		rec := do(t, s, "GET", "/api/work-orders", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list code = %d body %s", rec.Code, rec.Body)
+		}
+		list := decode[[]woJSON](t, rec)
+		if len(list) != 25 {
+			t.Fatalf("count = %d, want 25", len(list))
+		}
+		for _, wo := range list {
+			want := map[string]int{"count": 0, "pendingCents": 0, "approvedCents": 0, "rejectedCents": 0}
+			if wo.ID == 9631810 {
+				want = wantSeed
+			}
+			if !maps.Equal(wo.ExpenseTotals, want) {
+				t.Errorf("list work order %d expenseTotals = %v, want %v", wo.ID, wo.ExpenseTotals, want)
+			}
+			rec = do(t, s, "GET", "/api/work-orders/"+strconv.Itoa(wo.ID), "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("detail code = %d body %s", rec.Code, rec.Body)
+			}
+			got := decode[woJSON](t, rec)
+			if !maps.Equal(got.ExpenseTotals, want) {
+				t.Errorf("detail work order %d expenseTotals = %v, want %v", wo.ID, got.ExpenseTotals, want)
+			}
+		}
+	}
+	check(map[string]int{"count": 2, "pendingCents": 2400, "approvedCents": 1800, "rejectedCents": 0})
+	added, err := s.store.AddExpense(9631810, workorder.Expense{
+		Category: workorder.ExpenseTools, Description: "Cable tester rental", AmountCents: 3500,
+	})
+	if err != nil {
+		t.Fatalf("AddExpense: %v", err)
+	}
+	check(map[string]int{"count": 3, "pendingCents": 5900, "approvedCents": 1800, "rejectedCents": 0})
+	if _, err := s.store.SetExpenseStatus(9631810, added.ID, workorder.ExpenseRejected, "Not reimbursable"); err != nil {
+		t.Fatalf("SetExpenseStatus: %v", err)
+	}
+	check(map[string]int{"count": 3, "pendingCents": 2400, "approvedCents": 1800, "rejectedCents": 3500})
+	if _, err := s.store.SetExpenseStatus(9631810, "e1", workorder.ExpenseApproved, ""); err != nil {
+		t.Fatalf("SetExpenseStatus: %v", err)
+	}
+	check(map[string]int{"count": 3, "pendingCents": 0, "approvedCents": 4200, "rejectedCents": 3500})
 }
 
 func TestWorkOrderExpenses(t *testing.T) {
@@ -385,13 +434,14 @@ func TestProgressForNoTasks(t *testing.T) {
 
 func TestWorkOrderSummary(t *testing.T) {
 	for _, tt := range []struct {
-		name     string
-		server   *Server
-		total    int
-		byStatus map[string]int
+		name            string
+		server          *Server
+		total           int
+		byStatus        map[string]int
+		pendingExpenses int
 	}{
 		{
-			name: "seeded", server: newTestServer(t), total: 25,
+			name: "seeded", server: newTestServer(t), total: 25, pendingExpenses: 1,
 			byStatus: map[string]int{
 				"Draft": 3, "Published": 3, "Routed": 3, "Assigned": 8,
 				"Work Done": 3, "Approved": 2, "Paid": 2, "Cancelled": 1,
@@ -414,8 +464,9 @@ func TestWorkOrderSummary(t *testing.T) {
 				t.Errorf("Content-Type = %q", got)
 			}
 			got := decode[struct {
-				Total    int            `json:"total"`
-				ByStatus map[string]int `json:"byStatus"`
+				Total           int            `json:"total"`
+				ByStatus        map[string]int `json:"byStatus"`
+				PendingExpenses *int           `json:"pendingExpenses"`
 			}](t, rec)
 			if got.Total != tt.total {
 				t.Errorf("total = %d, want %d", got.Total, tt.total)
@@ -423,7 +474,45 @@ func TestWorkOrderSummary(t *testing.T) {
 			if !maps.Equal(got.ByStatus, tt.byStatus) {
 				t.Errorf("byStatus = %v, want %v", got.ByStatus, tt.byStatus)
 			}
+			if got.PendingExpenses == nil || *got.PendingExpenses != tt.pendingExpenses {
+				t.Errorf("summary = %s, want pendingExpenses %d", rec.Body, tt.pendingExpenses)
+			}
 		})
+	}
+}
+
+func TestWorkOrderSummaryCountsPendingWorkOrders(t *testing.T) {
+	s := newTestServer(t)
+	for _, tt := range []struct {
+		id   int
+		want int
+	}{
+		{id: 9631810, want: 1},
+		{id: 9631801, want: 2},
+	} {
+		added, err := s.store.AddExpense(tt.id, workorder.Expense{
+			Category: workorder.ExpenseOther, Description: "Parking", AmountCents: 500,
+		})
+		if err != nil {
+			t.Fatalf("AddExpense: %v", err)
+		}
+		for _, status := range []workorder.ExpenseStatus{workorder.ExpensePending, workorder.ExpenseApproved, workorder.ExpenseRejected} {
+			if _, err := s.store.SetExpenseStatus(tt.id, added.ID, status, ""); err != nil {
+				t.Fatalf("SetExpenseStatus: %v", err)
+			}
+			rec := do(t, s, "GET", "/api/work-orders/summary", "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			got := decode[map[string]json.RawMessage](t, rec)
+			want := tt.want
+			if tt.id == 9631801 && status != workorder.ExpensePending {
+				want = 1
+			}
+			if string(got["pendingExpenses"]) != strconv.Itoa(want) {
+				t.Errorf("work order %d expense status %s: pendingExpenses = %s, want %d", tt.id, status, got["pendingExpenses"], want)
+			}
+		}
 	}
 }
 
