@@ -22,6 +22,7 @@ export function makeWorkOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     location: { city: 'Minneapolis', state: 'MN' },
     schedule: { start: '2026-10-22T14:00:00Z', end: '2026-10-22T18:00:00Z' },
     pay: { type: 'Hourly', rate: 65, hours: 4 },
+    expenseTotals: { pendingCents: 0, approvedCents: 0, rejectedCents: 0 },
     tasks: [
       { id: 't1', group: 'Prep', title: 'Set start time', done: true },
       { id: 't2', group: 'On Site', title: 'Check in', done: false },

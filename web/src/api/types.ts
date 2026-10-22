@@ -38,6 +38,27 @@ export interface Pay {
   devices?: number
 }
 
+export type ExpenseCategory = 'Travel' | 'Materials' | 'Other'
+export type ExpenseStatus = 'Pending' | 'Approved' | 'Rejected'
+
+export interface Expense {
+  id: string
+  workOrderId: number
+  category: ExpenseCategory
+  description: string
+  amountCents: number
+  status: ExpenseStatus
+  createdAt: string
+  reviewedAt?: string
+  rejectionReason?: string
+}
+
+export interface ExpenseTotals {
+  pendingCents: number
+  approvedCents: number
+  rejectedCents: number
+}
+
 export interface Task {
   id: string
   group: TaskGroup
@@ -67,6 +88,7 @@ export interface WorkOrder {
   checkIn?: string
   checkOut?: string
   pay: Pay
+  expenseTotals: ExpenseTotals
   tasks: Task[]
   health: Health
 }

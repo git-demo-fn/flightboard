@@ -1,4 +1,4 @@
-import type { NewWorkOrder, Pay, PayQuote, Provider, Status, WorkOrder } from './types'
+import type { Expense, NewWorkOrder, Pay, PayQuote, Provider, Status, WorkOrder } from './types'
 
 /** ApiError carries the HTTP status and the server's error message. */
 export class ApiError extends Error {
@@ -38,10 +38,20 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ done }),
     }),
+  listExpenses: (workOrderId: number) =>
+    request<Expense[]>(`/api/work-orders/${workOrderId}/expenses`),
+  addExpense: (
+    workOrderId: number,
+    expense: Pick<Expense, 'category' | 'description' | 'amountCents'>,
+  ) => post<Expense>(`/api/work-orders/${workOrderId}/expenses`, expense),
+  approveExpense: (workOrderId: number, expenseId: string) =>
+    post<Expense>(`/api/work-orders/${workOrderId}/expenses/${expenseId}/approve`, {}),
+  rejectExpense: (workOrderId: number, expenseId: string, reason: string) =>
+    post<Expense>(`/api/work-orders/${workOrderId}/expenses/${expenseId}/reject`, { reason }),
   listProviders: () => request<Provider[]>('/api/providers'),
 }
 
 // Pay quotes come from the PHP pay service (/pay), called directly by the web.
 export const payApi = {
-  quote: (pay: Pay) => post<PayQuote>('/pay/quote', pay),
+  quote: (pay: Pay, expenses?: Expense[]) => post<PayQuote>('/pay/quote', { ...pay, expenses }),
 }
