@@ -36,10 +36,28 @@ final class PayCalculator
             'Blended' => throw new UnsupportedPayType('Blended pay is not supported yet'),
         };
 
+        $expenses = array_key_exists('expenses', $pay) ? $pay['expenses'] : [];
+        if (!is_array($expenses) || !array_is_list($expenses)) {
+            throw new InvalidPay('expenses must be a list');
+        }
+        foreach ($expenses as $expense) {
+            if (!is_array($expense) || !is_string($expense['category'] ?? null)
+                || trim($expense['category']) === '') {
+                throw new InvalidPay('expense category must be a non-empty string');
+            }
+            $amountCents = $expense['amountCents'] ?? null;
+            if (!is_int($amountCents) || $amountCents <= 0) {
+                throw new InvalidPay('expense amountCents must be a positive whole number');
+            }
+            $lines[] = ['label' => 'Expense - ' . $expense['category'], 'amount' => (float) $amountCents / 100];
+        }
+
+        $total = array_sum(array_column($lines, 'amount'));
+
         return [
             'type' => $type,
             'lines' => $lines,
-            'total' => array_sum(array_column($lines, 'amount')),
+            'total' => $expenses === [] ? $total : round($total, 2),
         ];
     }
 

@@ -37,6 +37,12 @@ final class App
             return [400, ['error' => 'invalid JSON body']];
         }
 
+        // Associative decoding loses the distinction between objects and lists.
+        $expenses = json_decode($body)->expenses ?? null;
+        if (is_object($expenses)) {
+            $pay['expenses'] = $expenses;
+        }
+
         try {
             return [200, $this->calculator->quote($pay)];
         } catch (InvalidPay $e) {
