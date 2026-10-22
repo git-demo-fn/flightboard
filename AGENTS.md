@@ -64,10 +64,10 @@ A change to a status or a pay type usually touches the Go model, `web/src/api/ty
 | Method and path | Purpose |
 |---|---|
 | `GET /api/health` | Health check |
-| `GET /api/work-orders?status=&providerId=` | List work orders, newest first, with `provider` expanded; optional `status` filters by lifecycle status (e.g. `Draft` or `Work%20Done`), unknown statuses return 400 |
+| `GET /api/work-orders?status=&providerId=` | List work orders, newest first, with `provider` expanded and `expenseTotals`; optional `status` filters by lifecycle status (e.g. `Draft` or `Work%20Done`), unknown statuses return 400 |
 | `POST /api/work-orders` | Create a work order as `Draft` or `Published` |
-| `GET /api/work-orders/summary` | Total work orders and counts for every status |
-| `GET /api/work-orders/{id}` | One work order |
+| `GET /api/work-orders/summary` | Total work orders, counts for every status, and `pendingExpenses`: the number of work orders with at least one `Pending` expense |
+| `GET /api/work-orders/{id}` | One work order with `expenseTotals` |
 | `GET /api/work-orders/{id}/progress` | Done and total task counts by group and overall, with a rounded-down completion percent |
 | `GET /api/work-orders/{id}/expenses` | Work order expenses, newest first; an empty array if there are none |
 | `POST /api/work-orders/{id}/status` | Move to a new status, body `{"status":"Approved"}` |
@@ -76,6 +76,9 @@ A change to a status or a pay type usually touches the Go model, `web/src/api/ty
 | `PATCH /api/work-orders/{id}/tasks/{taskId}` | Mark a task done, body `{"done":true}` |
 | `GET /api/providers`, `GET /api/providers/{id}` | Providers, highest score first |
 | `POST /pay/quote` | Pay quote, body is a work order `pay` object |
+
+`expenseTotals` has `count`, `pendingCents`, `approvedCents`, and `rejectedCents`.
+The count includes all expenses; cents are summed by expense status. All fields are zero for a work order without expenses.
 
 Errors use the shape `{"error":"message"}`.
 The API returns 400 for bad input, 404 for an unknown id, and 409 for a change the lifecycle does not allow.
