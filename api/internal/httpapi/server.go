@@ -37,6 +37,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-in", s.checkIn)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-out", s.checkOut)
 	s.mux.HandleFunc("PATCH /api/work-orders/{id}/tasks/{taskId}", s.updateTask)
+	s.mux.HandleFunc("POST /api/work-orders/{id}/expenses/{expenseId}/approve", s.approveExpense)
+	s.mux.HandleFunc("POST /api/work-orders/{id}/expenses/{expenseId}/reject", s.rejectExpense)
 	s.mux.HandleFunc("GET /api/providers", s.listProviders)
 	s.mux.HandleFunc("GET /api/providers/{id}", s.getProvider)
 }
@@ -232,6 +234,33 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listProviders(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.store.ListProviders())
+}
+
+func (s *Server) approveExpense(w http.ResponseWriter, r *http.Request) {
+	s.decideExpense(w, r, workorder.ExpenseApproved)
+}
+
+func (s *Server) rejectExpense(w http.ResponseWriter, r *http.Request) {
+	s.decideExpense(w, r, workorder.ExpenseRejected)
+}
+
+func (s *Server) decideExpense(w http.ResponseWriter, r *http.Request, status workorder.ExpenseStatus) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Reason string `json:"reason"`
+	}
+	if status == workorder.ExpenseRejected && !readJSON(w, r, &in) {
+		return
+	}
+	expense, err := s.store.DecideExpense(id, r.PathValue("expenseId"), status, in.Reason)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, expense)
 }
 
 func (s *Server) getProvider(w http.ResponseWriter, r *http.Request) {

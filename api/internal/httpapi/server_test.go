@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -432,5 +433,143 @@ func TestProviders(t *testing.T) {
 	}
 	if rec := do(t, s, "GET", "/api/providers/nope", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing provider code = %d", rec.Code)
+	}
+}
+
+func TestExpenseDecisions(t *testing.T) {
+	for _, status := range []workorder.Status{workorder.StatusAssigned, workorder.StatusWorkDone} {
+		for _, tt := range []struct {
+			action string
+			body   string
+			status workorder.ExpenseStatus
+			reason string
+		}{
+			{action: "approve", status: workorder.ExpenseApproved},
+			{action: "reject", body: `{"reason":"No receipt"}`, status: workorder.ExpenseRejected, reason: "No receipt"},
+			{action: "reject", body: `{"reason":"` + strings.Repeat("a", 200) + `"}`, status: workorder.ExpenseRejected, reason: strings.Repeat("a", 200)},
+			{action: "reject", body: `{"reason":"` + strings.Repeat("\u00e9", 200) + `"}`, status: workorder.ExpenseRejected, reason: strings.Repeat("\u00e9", 200)},
+		} {
+			t.Run(string(status)+"/"+tt.action+"/"+strconv.Itoa(len(tt.reason)), func(t *testing.T) {
+				s := newTestServer(t)
+				if status == workorder.StatusWorkDone {
+					if _, err := s.store.SetStatus(9631810, status); err != nil {
+						t.Fatal(err)
+					}
+				}
+				original, err := s.store.Expenses(9631810)
+				if err != nil {
+					t.Fatal(err)
+				}
+				path := "/api/work-orders/9631810/expenses/e1/"
+				rec := do(t, s, "POST", path+tt.action, tt.body)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+				}
+				if got := rec.Header().Get("Content-Type"); got != "application/json" {
+					t.Errorf("Content-Type = %q", got)
+				}
+				want := original[0]
+				want.Status, want.Reason = tt.status, tt.reason
+				if got := decode[workorder.Expense](t, rec); got != want {
+					t.Errorf("expense = %+v, want %+v", got, want)
+				}
+				for _, action := range []string{"approve", "reject"} {
+					rec = do(t, s, "POST", path+action, `{"reason":"Second decision"}`)
+					if rec.Code != http.StatusConflict {
+						t.Fatalf("second %s code = %d body %s", action, rec.Code, rec.Body)
+					}
+				}
+				stored, err := s.store.Expenses(9631810)
+				if err != nil || len(stored) != len(original) || stored[0] != want || stored[1] != original[1] {
+					t.Fatalf("stored expenses = %+v, err = %v", stored, err)
+				}
+			})
+		}
+	}
+}
+
+func TestRejectExpenseInvalidReason(t *testing.T) {
+	for _, body := range []string{
+		"", `{}`, `{"reason":""}`, `{"reason":"   "}`, `{"reason":null}`,
+		`{"reason":"` + strings.Repeat("a", 201) + `"}`,
+		`{"reason":"` + strings.Repeat("\u00e9", 201) + `"}`,
+		`{"reason":123}`, `{not json`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			s := newTestServer(t)
+			original, err := s.store.Expenses(9631810)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := do(t, s, "POST", "/api/work-orders/9631810/expenses/e1/reject", body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := decode[map[string]string](t, rec); got["error"] == "" {
+				t.Errorf("missing error: %v", got)
+			}
+			stored, err := s.store.Expenses(9631810)
+			if err != nil || !slices.Equal(stored, original) {
+				t.Fatalf("failed rejection changed expenses: %+v, err = %v", stored, err)
+			}
+		})
+	}
+}
+
+func TestExpenseDecisionErrors(t *testing.T) {
+	for _, action := range []string{"approve", "reject"} {
+		for _, tt := range []struct {
+			path string
+			code int
+		}{
+			{path: "1/expenses/e1", code: http.StatusNotFound},
+			{path: "9631810/expenses/missing", code: http.StatusNotFound},
+			{path: "9631801/expenses/missing", code: http.StatusNotFound},
+			{path: "abc/expenses/e1", code: http.StatusBadRequest},
+			{path: "9631810/expenses/e2", code: http.StatusConflict},
+		} {
+			t.Run(action+"/"+tt.path, func(t *testing.T) {
+				rec := do(t, newTestServer(t), "POST", "/api/work-orders/"+tt.path+"/"+action, `{"reason":"No receipt"}`)
+				if rec.Code != tt.code {
+					t.Fatalf("code = %d, want %d body %s", rec.Code, tt.code, rec.Body)
+				}
+				if got := decode[map[string]string](t, rec); got["error"] == "" {
+					t.Errorf("missing error: %v", got)
+				}
+			})
+		}
+	}
+}
+
+func TestExpenseDecisionWorkOrderStatus(t *testing.T) {
+	for _, status := range workorder.Statuses {
+		if status == workorder.StatusAssigned || status == workorder.StatusWorkDone {
+			continue
+		}
+		for _, action := range []string{"approve", "reject"} {
+			t.Run(string(status)+"/"+action, func(t *testing.T) {
+				s := newTestServer(t)
+				orders := s.store.ListWorkOrders(store.Filter{Status: status})
+				if len(orders) == 0 {
+					t.Fatal("no work orders for status")
+				}
+				id := orders[0].ID
+				expense, err := s.store.AddExpense(id, workorder.Expense{
+					Category: workorder.ExpenseParts, Description: "Cable", AmountCents: 100,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				path := "/api/work-orders/" + strconv.Itoa(id) + "/expenses/" + expense.ID + "/" + action
+				rec := do(t, s, "POST", path, `{"reason":"No receipt"}`)
+				if rec.Code != http.StatusConflict {
+					t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+				}
+				stored, err := s.store.Expenses(id)
+				if err != nil || len(stored) != 1 || stored[0] != expense {
+					t.Fatalf("failed decision changed expenses: %+v, err = %v", stored, err)
+				}
+			})
+		}
 	}
 }

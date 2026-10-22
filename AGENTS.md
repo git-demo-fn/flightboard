@@ -73,6 +73,8 @@ A change to a status or a pay type usually touches the Go model, `web/src/api/ty
 | `POST /api/work-orders/{id}/check-in` | Record check-in, body `{"time":"<RFC 3339>"}` or `{}` for now |
 | `POST /api/work-orders/{id}/check-out` | Record check-out, same body |
 | `PATCH /api/work-orders/{id}/tasks/{taskId}` | Mark a task done, body `{"done":true}` |
+| `POST /api/work-orders/{id}/expenses/{expenseId}/approve` | Approve a Pending expense on an Assigned or Work Done work order |
+| `POST /api/work-orders/{id}/expenses/{expenseId}/reject` | Reject a Pending expense on an Assigned or Work Done work order, body `{"reason":"No receipt"}`; reason is required and at most 200 characters |
 | `GET /api/providers`, `GET /api/providers/{id}` | Providers, highest score first |
 | `POST /pay/quote` | Pay quote, body is a work order `pay` object |
 

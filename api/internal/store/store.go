@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/git-demo-fn/flightboard/api/internal/workorder"
 )
@@ -229,6 +230,43 @@ func (s *Store) SetExpenseStatus(id int, expenseID string, status workorder.Expe
 			if status == workorder.ExpenseRejected {
 				w.Expenses[i].Reason = reason
 			}
+			expense = w.Expenses[i]
+			return nil
+		}
+		return ErrNotFound
+	})
+	if err != nil {
+		return workorder.Expense{}, err
+	}
+	return expense, nil
+}
+
+// DecideExpense approves or rejects a pending expense on an eligible work order.
+func (s *Store) DecideExpense(id int, expenseID string, status workorder.ExpenseStatus, reason string) (workorder.Expense, error) {
+	var expense workorder.Expense
+	_, err := s.update(id, func(w *workorder.WorkOrder) error {
+		for i := range w.Expenses {
+			if w.Expenses[i].ID != expenseID {
+				continue
+			}
+			if w.Status != workorder.StatusAssigned && w.Status != workorder.StatusWorkDone {
+				return fmt.Errorf("%w: only Assigned or Work Done work orders can have expenses decided", ErrConflict)
+			}
+			if w.Expenses[i].Status != workorder.ExpensePending {
+				return fmt.Errorf("%w: only Pending expenses can be decided", ErrConflict)
+			}
+			switch status {
+			case workorder.ExpenseApproved:
+				reason = ""
+			case workorder.ExpenseRejected:
+				if strings.TrimSpace(reason) == "" || utf8.RuneCountInString(reason) > 200 {
+					return fmt.Errorf("%w: rejection reason must be between 1 and 200 characters", workorder.ErrInvalid)
+				}
+			default:
+				return fmt.Errorf("%w: expense decision must be Approved or Rejected", workorder.ErrInvalid)
+			}
+			w.Expenses[i].Status = status
+			w.Expenses[i].Reason = reason
 			expense = w.Expenses[i]
 			return nil
 		}
