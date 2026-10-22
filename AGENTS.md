@@ -73,6 +73,7 @@ A change to a status or a pay type usually touches the Go model, `web/src/api/ty
 | `POST /api/work-orders/{id}/status` | Move to a new status, body `{"status":"Approved"}` |
 | `POST /api/work-orders/{id}/check-in` | Record check-in, body `{"time":"<RFC 3339>"}` or `{}` for now |
 | `POST /api/work-orders/{id}/check-out` | Record check-out, same body |
+| `POST /api/work-orders/{id}/expenses` | Add a Pending expense to an Assigned or Work Done work order, body `{"category":"Parts","description":"Replacement switch","amountCents":4599}` |
 | `PATCH /api/work-orders/{id}/tasks/{taskId}` | Mark a task done, body `{"done":true}` |
 | `GET /api/providers`, `GET /api/providers/{id}` | Providers, highest score first |
 | `POST /pay/quote` | Pay quote, body is a work order `pay` object |

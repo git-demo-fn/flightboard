@@ -192,9 +192,12 @@ func (s *Store) Expenses(id int) ([]workorder.Expense, error) {
 	return out, nil
 }
 
-// AddExpense validates an expense and assigns its server-owned fields.
+// AddExpense adds an expense to an Assigned or Work Done work order.
 func (s *Store) AddExpense(id int, e workorder.Expense) (workorder.Expense, error) {
 	_, err := s.update(id, func(w *workorder.WorkOrder) error {
+		if w.Status != workorder.StatusAssigned && w.Status != workorder.StatusWorkDone {
+			return fmt.Errorf("%w: only Assigned or Work Done work orders can add expenses", ErrConflict)
+		}
 		if err := workorder.ValidateExpense(e); err != nil {
 			return err
 		}

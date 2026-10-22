@@ -38,6 +38,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/work-orders/{id}/status", s.setStatus)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-in", s.checkIn)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-out", s.checkOut)
+	s.mux.HandleFunc("POST /api/work-orders/{id}/expenses", s.addExpense)
 	s.mux.HandleFunc("PATCH /api/work-orders/{id}/tasks/{taskId}", s.updateTask)
 	s.mux.HandleFunc("GET /api/providers", s.listProviders)
 	s.mux.HandleFunc("GET /api/providers/{id}", s.getProvider)
@@ -246,6 +247,23 @@ func (s *Server) updateTask(w http.ResponseWriter, r *http.Request) {
 	}
 	wo, err := s.store.SetTaskDone(id, r.PathValue("taskId"), in.Done)
 	s.respond(w, http.StatusOK, wo, err)
+}
+
+func (s *Server) addExpense(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	var in workorder.Expense
+	if !readJSON(w, r, &in) {
+		return
+	}
+	expense, err := s.store.AddExpense(id, in)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, expense)
 }
 
 func (s *Server) listProviders(w http.ResponseWriter, _ *http.Request) {

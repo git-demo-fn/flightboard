@@ -289,9 +289,31 @@ func TestAddExpense(t *testing.T) {
 	if err != nil || !slices.Equal(unchanged, expenses) {
 		t.Fatalf("invalid expense changed store: %+v, err = %v", unchanged, err)
 	}
-	first, err := s.AddExpense(9631801, workorder.Expense{Category: workorder.ExpenseOther, Description: "Shipping", AmountCents: 500})
+	first, err := s.AddExpense(9631818, workorder.Expense{Category: workorder.ExpenseOther, Description: "Shipping", AmountCents: 500})
 	if err != nil || first.ID != "e1" {
 		t.Fatalf("first expense = %+v, err = %v", first, err)
+	}
+}
+
+func TestAddExpenseRejectsOtherStatuses(t *testing.T) {
+	s := seeded(t)
+	for _, status := range workorder.Statuses {
+		if status == workorder.StatusAssigned || status == workorder.StatusWorkDone {
+			continue
+		}
+		t.Run(string(status), func(t *testing.T) {
+			w := s.ListWorkOrders(Filter{Status: status})[0]
+			_, err := s.AddExpense(w.ID, workorder.Expense{
+				Category: workorder.ExpenseParts, Description: "Replacement switch", AmountCents: 4599,
+			})
+			if !errors.Is(err, ErrConflict) {
+				t.Fatalf("AddExpense err = %v, want ErrConflict", err)
+			}
+			after, err := s.Expenses(w.ID)
+			if err != nil || !slices.Equal(after, w.Expenses) {
+				t.Fatalf("expenses changed: %+v, err = %v", after, err)
+			}
+		})
 	}
 }
 

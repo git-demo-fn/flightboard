@@ -512,6 +512,110 @@ func TestUpdateTask(t *testing.T) {
 	}
 }
 
+func TestAddExpense(t *testing.T) {
+	for _, status := range []workorder.Status{workorder.StatusAssigned, workorder.StatusWorkDone} {
+		t.Run(string(status), func(t *testing.T) {
+			s := newTestServer(t)
+			wo := s.store.ListWorkOrders(store.Filter{Status: status})[0]
+			before, err := s.store.Expenses(wo.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := time.Now()
+			rec := do(t, s, "POST", "/api/work-orders/"+strconv.Itoa(wo.ID)+"/expenses",
+				`{"category":"Parts","description":"Replacement switch","amountCents":4599}`)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q", got)
+			}
+			got := decode[workorder.Expense](t, rec)
+			if got.ID != "e"+strconv.Itoa(len(before)+1) || got.Status != workorder.ExpensePending {
+				t.Errorf("server fields = %+v", got)
+			}
+			if got.CreatedAt.Before(start) || got.CreatedAt.After(time.Now()) {
+				t.Errorf("createdAt = %v, want current time", got.CreatedAt)
+			}
+			if got.Category != workorder.ExpenseParts || got.Description != "Replacement switch" || got.AmountCents != 4599 {
+				t.Errorf("expense details = %+v", got)
+			}
+			after, err := s.store.Expenses(wo.ID)
+			if err != nil || len(after) != len(before)+1 {
+				t.Fatalf("stored expenses = %+v, err = %v", after, err)
+			}
+			if !slices.Equal(after[:len(before)], before) || after[len(before)] != got {
+				t.Errorf("stored expenses = %+v, want original expenses plus %+v", after, got)
+			}
+		})
+	}
+}
+
+func TestAddExpenseErrors(t *testing.T) {
+	const valid = `{"category":"Parts","description":"Replacement switch","amountCents":4599}`
+	for _, tt := range []struct {
+		name string
+		id   string
+		body string
+		code int
+		err  string
+	}{
+		{name: "bad amount", id: "9631810", body: `{"category":"Parts","description":"Replacement switch","amountCents":0}`,
+			code: http.StatusBadRequest, err: "invalid work order: expense amount must be between 1 and 500000 cents"},
+		{name: "bad category", id: "9631810", body: `{"category":"Meals","description":"Lunch","amountCents":1000}`,
+			code: http.StatusBadRequest, err: `invalid work order: unknown expense category "Meals"`},
+		{name: "bad description", id: "9631810", body: `{"category":"Parts","description":" ","amountCents":4599}`,
+			code: http.StatusBadRequest, err: "invalid work order: expense description is required"},
+		{name: "invalid JSON", id: "9631810", body: `{not json`, code: http.StatusBadRequest, err: "invalid JSON body"},
+		{name: "Draft", id: "9631801", body: valid, code: http.StatusConflict,
+			err: "conflict: only Assigned or Work Done work orders can add expenses"},
+		{name: "unknown id", id: "1", body: valid, code: http.StatusNotFound, err: "not found"},
+		{name: "invalid id", id: "abc", body: valid, code: http.StatusBadRequest, err: "id must be a number"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t)
+			before := s.store.ListWorkOrders(store.Filter{})
+			rec := do(t, s, "POST", "/api/work-orders/"+tt.id+"/expenses", tt.body)
+			if rec.Code != tt.code {
+				t.Fatalf("code = %d body %s, want %d", rec.Code, rec.Body, tt.code)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q", got)
+			}
+			if got := decode[map[string]string](t, rec); !maps.Equal(got, map[string]string{"error": tt.err}) {
+				t.Errorf("error body = %v, want error %q", got, tt.err)
+			}
+			for _, wo := range before {
+				after, err := s.store.Expenses(wo.ID)
+				if err != nil || !slices.Equal(after, wo.Expenses) {
+					t.Errorf("work order %d expenses changed: %+v, err = %v", wo.ID, after, err)
+				}
+			}
+		})
+	}
+}
+
+func TestAddExpenseRejectsOtherStatuses(t *testing.T) {
+	s := newTestServer(t)
+	for _, status := range workorder.Statuses {
+		if status == workorder.StatusAssigned || status == workorder.StatusWorkDone {
+			continue
+		}
+		t.Run(string(status), func(t *testing.T) {
+			wo := s.store.ListWorkOrders(store.Filter{Status: status})[0]
+			rec := do(t, s, "POST", "/api/work-orders/"+strconv.Itoa(wo.ID)+"/expenses",
+				`{"category":"Parts","description":"Replacement switch","amountCents":4599}`)
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			after, err := s.store.Expenses(wo.ID)
+			if err != nil || !slices.Equal(after, wo.Expenses) {
+				t.Errorf("expenses changed: %+v, err = %v", after, err)
+			}
+		})
+	}
+}
+
 func TestProviders(t *testing.T) {
 	s := newTestServer(t)
 	rec := do(t, s, "GET", "/api/providers", "")
