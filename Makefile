@@ -34,7 +34,7 @@ test-api:
 	cd api && go test ./...
 
 test-pay:
-	$(PHP) vendor/bin/phpunit
+	cd pay && $(PHP) vendor/bin/phpunit
 
 test-web:
 	cd web && npm test
