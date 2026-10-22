@@ -174,6 +174,40 @@ func TestSetStatus(t *testing.T) {
 	}
 }
 
+func TestSetStatusWithExpenses(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		from, to workorder.Status
+		expenses []workorder.Expense
+		wantErr  error
+	}{
+		{"pending", workorder.StatusWorkDone, workorder.StatusApproved, []workorder.Expense{{Status: workorder.ExpenseApproved}, {Status: workorder.ExpensePending}}, ErrPendingExpenses},
+		{"decided", workorder.StatusWorkDone, workorder.StatusApproved, []workorder.Expense{{Status: workorder.ExpenseApproved}, {Status: workorder.ExpenseRejected}}, nil},
+		{"none", workorder.StatusWorkDone, workorder.StatusApproved, nil, nil},
+		{"other transition", workorder.StatusAssigned, workorder.StatusWorkDone, []workorder.Expense{{Status: workorder.ExpensePending}}, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := New()
+			s.workOrders[1] = workorder.WorkOrder{ID: 1, Status: tt.from, Expenses: tt.expenses}
+			_, err := s.SetStatus(1, tt.to)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("SetStatus err = %v, want %v", err, tt.wantErr)
+			}
+			w, err := s.GetWorkOrder(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantStatus := tt.to
+			if tt.wantErr != nil {
+				wantStatus = tt.from
+			}
+			if w.Status != wantStatus || !slices.Equal(w.Expenses, tt.expenses) {
+				t.Fatalf("stored work order = %+v, want status %s and unchanged expenses", w, wantStatus)
+			}
+		})
+	}
+}
+
 func TestSetTaskDone(t *testing.T) {
 	s := seeded(t)
 	w, err := s.SetTaskDone(9631801, "t1", true)

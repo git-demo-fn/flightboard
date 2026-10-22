@@ -482,6 +482,49 @@ func TestSetStatus(t *testing.T) {
 	}
 }
 
+func TestApproveWithExpenses(t *testing.T) {
+	for _, decision := range []workorder.ExpenseStatus{workorder.ExpensePending, workorder.ExpenseApproved, workorder.ExpenseRejected} {
+		t.Run(string(decision), func(t *testing.T) {
+			s := newTestServer(t)
+			e, err := s.store.AddExpense(9631819, workorder.Expense{
+				Category: workorder.ExpenseParts, Description: "Patch cable", AmountCents: 1000,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.store.SetExpenseStatus(9631819, e.ID, decision, "Not covered"); err != nil {
+				t.Fatal(err)
+			}
+			rec := do(t, s, "POST", "/api/work-orders/9631819/status", `{"status":"Approved"}`)
+			wantStatus := "Approved"
+			if decision == workorder.ExpensePending {
+				if rec.Code != http.StatusConflict {
+					t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+				}
+				want := map[string]string{"error": "approve or reject the pending expenses first"}
+				if got := decode[map[string]string](t, rec); !maps.Equal(got, want) {
+					t.Fatalf("response = %v, want %v", got, want)
+				}
+				wantStatus = "Work Done"
+			} else {
+				if rec.Code != http.StatusOK {
+					t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+				}
+				if got := decode[woJSON](t, rec).Status; got != wantStatus {
+					t.Fatalf("response status = %q, want %q", got, wantStatus)
+				}
+			}
+			rec = do(t, s, "GET", "/api/work-orders/9631819", "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("get code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := decode[woJSON](t, rec).Status; got != wantStatus {
+				t.Fatalf("stored status = %q, want %q", got, wantStatus)
+			}
+		})
+	}
+}
+
 func TestCheckInOut(t *testing.T) {
 	s := newTestServer(t)
 	rec := do(t, s, "POST", "/api/work-orders/9631812/check-in", `{"time":"2026-10-20T09:02:00Z"}`)

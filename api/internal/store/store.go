@@ -25,6 +25,9 @@ var ErrNotFound = errors.New("not found")
 // ErrConflict is returned when a change is not allowed in the current state.
 var ErrConflict = errors.New("conflict")
 
+// ErrPendingExpenses is returned when approval needs expense decisions first.
+var ErrPendingExpenses = errors.New("approve or reject the pending expenses first")
+
 // Filter narrows a work order listing. Zero values match everything.
 type Filter struct {
 	Status     workorder.Status
@@ -157,6 +160,13 @@ func (s *Store) SetStatus(id int, to workorder.Status) (workorder.WorkOrder, err
 	return s.update(id, func(w *workorder.WorkOrder) error {
 		if !workorder.CanTransition(w.Status, to) {
 			return fmt.Errorf("%w: cannot move from %s to %s", ErrConflict, w.Status, to)
+		}
+		if to == workorder.StatusApproved {
+			for _, e := range w.Expenses {
+				if e.Status == workorder.ExpensePending {
+					return ErrPendingExpenses
+				}
+			}
 		}
 		w.Status = to
 		if to != workorder.StatusAssigned {
