@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Status is the lifecycle status of a work order.
@@ -98,6 +99,36 @@ type Task struct {
 	Done  bool      `json:"done"`
 }
 
+// ExpenseCategory is the kind of cost incurred by a provider.
+type ExpenseCategory string
+
+const (
+	ExpenseParts   ExpenseCategory = "Parts"
+	ExpenseMileage ExpenseCategory = "Mileage"
+	ExpenseTools   ExpenseCategory = "Tools"
+	ExpenseOther   ExpenseCategory = "Other"
+)
+
+// ExpenseStatus is the buyer's decision on an expense.
+type ExpenseStatus string
+
+const (
+	ExpensePending  ExpenseStatus = "Pending"
+	ExpenseApproved ExpenseStatus = "Approved"
+	ExpenseRejected ExpenseStatus = "Rejected"
+)
+
+// Expense is a provider's reimbursable cost on a work order.
+type Expense struct {
+	ID          string          `json:"id"`
+	Category    ExpenseCategory `json:"category"`
+	Description string          `json:"description"`
+	AmountCents int             `json:"amountCents"`
+	Status      ExpenseStatus   `json:"status"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	Reason      string          `json:"reason,omitempty"`
+}
+
 // Provider is a technician who does the work.
 type Provider struct {
 	ID    string `json:"id"`
@@ -122,6 +153,7 @@ type WorkOrder struct {
 	CheckOut   *time.Time `json:"checkOut,omitempty"`
 	Pay        Pay        `json:"pay"`
 	Tasks      []Task     `json:"tasks"`
+	Expenses   []Expense  `json:"-"`
 	Health     Health     `json:"health"`
 }
 
@@ -169,6 +201,25 @@ func ParseStatus(s string) (Status, error) {
 var ErrInvalid = errors.New("invalid work order")
 
 func invalid(msg string) error { return fmt.Errorf("%w: %s", ErrInvalid, msg) }
+
+// ValidateExpense checks the provider-supplied expense details.
+func ValidateExpense(e Expense) error {
+	switch e.Category {
+	case ExpenseParts, ExpenseMileage, ExpenseTools, ExpenseOther:
+	default:
+		return invalid(fmt.Sprintf("unknown expense category %q", e.Category))
+	}
+	if strings.TrimSpace(e.Description) == "" {
+		return invalid("expense description is required")
+	}
+	if utf8.RuneCountInString(e.Description) > 200 {
+		return invalid("expense description must not exceed 200 characters")
+	}
+	if e.AmountCents < 1 || e.AmountCents > 500000 {
+		return invalid("expense amount must be between 1 and 500000 cents")
+	}
+	return nil
+}
 
 // ValidatePay checks the pay terms.
 func ValidatePay(p Pay) error {

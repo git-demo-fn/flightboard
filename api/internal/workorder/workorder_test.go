@@ -1,10 +1,89 @@
 package workorder
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestValidateExpense(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Expense)
+		wantErr bool
+	}{
+		{"valid", func(*Expense) {}, false},
+		{"mileage", func(e *Expense) { e.Category = ExpenseMileage }, false},
+		{"tools", func(e *Expense) { e.Category = ExpenseTools }, false},
+		{"other", func(e *Expense) { e.Category = ExpenseOther }, false},
+		{"unknown category", func(e *Expense) { e.Category = "Meals" }, true},
+		{"empty description", func(e *Expense) { e.Description = "" }, true},
+		{"blank description", func(e *Expense) { e.Description = " \t" }, true},
+		{"long description", func(e *Expense) { e.Description = strings.Repeat("a", 201) }, true},
+		{"200 characters", func(e *Expense) { e.Description = strings.Repeat("a", 200) }, false},
+		{"200 multibyte characters", func(e *Expense) { e.Description = strings.Repeat("\u00e9", 200) }, false},
+		{"201 multibyte characters", func(e *Expense) { e.Description = strings.Repeat("\u00e9", 201) }, true},
+		{"zero amount", func(e *Expense) { e.AmountCents = 0 }, true},
+		{"negative amount", func(e *Expense) { e.AmountCents = -1 }, true},
+		{"over maximum", func(e *Expense) { e.AmountCents = 500001 }, true},
+		{"minimum amount", func(e *Expense) { e.AmountCents = 1 }, false},
+		{"maximum amount", func(e *Expense) { e.AmountCents = 500000 }, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := Expense{Category: ExpenseParts, Description: "Patch cable", AmountCents: 1000}
+			tt.mutate(&e)
+			err := ValidateExpense(e)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateExpense() err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err != nil && !errors.Is(err, ErrInvalid) {
+				t.Fatalf("error %v does not wrap ErrInvalid", err)
+			}
+		})
+	}
+}
+
+func TestExpenseJSON(t *testing.T) {
+	e := Expense{
+		ID: "e1", Category: ExpenseParts, Description: "Patch cable", AmountCents: 1000,
+		Status: ExpensePending, CreatedAt: time.Date(2026, 10, 19, 13, 30, 0, 0, time.UTC),
+	}
+	data, err := json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"id":"e1","category":"Parts","description":"Patch cable","amountCents":1000,"status":"Pending","createdAt":"2026-10-19T13:30:00Z"}`
+	if string(data) != want {
+		t.Fatalf("JSON = %s, want %s", data, want)
+	}
+	e.Status, e.Reason = ExpenseRejected, "Not covered"
+	data, err = json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"reason":"Not covered"`) {
+		t.Fatalf("rejected expense JSON missing reason: %s", data)
+	}
+}
+
+func TestWorkOrderJSONOmitsExpenses(t *testing.T) {
+	w := validPublished()
+	before, err := json.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Expenses = []Expense{{ID: "e1", Category: ExpenseParts}}
+	after, err := json.Marshal(w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("expenses changed work order JSON: %s", after)
+	}
+}
 
 func validPublished() WorkOrder {
 	start := time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)

@@ -41,8 +41,11 @@ type Store struct {
 }
 
 type seedFile struct {
-	Providers  []workorder.Provider  `json:"providers"`
-	WorkOrders []workorder.WorkOrder `json:"workOrders"`
+	Providers  []workorder.Provider `json:"providers"`
+	WorkOrders []struct {
+		workorder.WorkOrder
+		Expenses []workorder.Expense `json:"expenses"`
+	} `json:"workOrders"`
 }
 
 // New returns an empty store.
@@ -65,7 +68,8 @@ func NewSeeded() (*Store, error) {
 		s.providers[p.ID] = p
 	}
 	for _, w := range seed.WorkOrders {
-		s.workOrders[w.ID] = w
+		w.WorkOrder.Expenses = w.Expenses
+		s.workOrders[w.ID] = w.WorkOrder
 		if w.ID >= s.nextID {
 			s.nextID = w.ID + 1
 		}
@@ -119,6 +123,7 @@ func (s *Store) CreateWorkOrder(w workorder.WorkOrder) (workorder.WorkOrder, err
 	w.ProviderID = ""
 	w.SubStatus = ""
 	w.CheckIn, w.CheckOut = nil, nil
+	w.Expenses = nil
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -172,6 +177,67 @@ func (s *Store) SetTaskDone(id int, taskID string, done bool) (workorder.WorkOrd
 		}
 		return ErrNotFound
 	})
+}
+
+// Expenses returns a copy of a work order's expenses.
+func (s *Store) Expenses(id int) ([]workorder.Expense, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	w, ok := s.workOrders[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	out := make([]workorder.Expense, len(w.Expenses))
+	copy(out, w.Expenses)
+	return out, nil
+}
+
+// AddExpense validates an expense and assigns its server-owned fields.
+func (s *Store) AddExpense(id int, e workorder.Expense) (workorder.Expense, error) {
+	_, err := s.update(id, func(w *workorder.WorkOrder) error {
+		if err := workorder.ValidateExpense(e); err != nil {
+			return err
+		}
+		e.ID = fmt.Sprintf("e%d", len(w.Expenses)+1)
+		e.Status = workorder.ExpensePending
+		e.CreatedAt = time.Now().UTC()
+		e.Reason = ""
+		w.Expenses = append(w.Expenses, e)
+		return nil
+	})
+	if err != nil {
+		return workorder.Expense{}, err
+	}
+	return e, nil
+}
+
+// SetExpenseStatus records a decision, keeping a reason only for rejection.
+func (s *Store) SetExpenseStatus(id int, expenseID string, status workorder.ExpenseStatus, reason string) (workorder.Expense, error) {
+	var expense workorder.Expense
+	_, err := s.update(id, func(w *workorder.WorkOrder) error {
+		for i := range w.Expenses {
+			if w.Expenses[i].ID != expenseID {
+				continue
+			}
+			switch status {
+			case workorder.ExpensePending, workorder.ExpenseApproved, workorder.ExpenseRejected:
+			default:
+				return fmt.Errorf("%w: unknown expense status %q", workorder.ErrInvalid, status)
+			}
+			w.Expenses[i].Status = status
+			w.Expenses[i].Reason = ""
+			if status == workorder.ExpenseRejected {
+				w.Expenses[i].Reason = reason
+			}
+			expense = w.Expenses[i]
+			return nil
+		}
+		return ErrNotFound
+	})
+	if err != nil {
+		return workorder.Expense{}, err
+	}
+	return expense, nil
 }
 
 // CheckIn records the provider's arrival on site.
@@ -228,6 +294,7 @@ func (s *Store) GetProvider(id string) (workorder.Provider, error) {
 
 func clone(w workorder.WorkOrder) workorder.WorkOrder {
 	w.Tasks = slices.Clone(w.Tasks)
+	w.Expenses = slices.Clone(w.Expenses)
 	if w.Schedule != nil {
 		sc := *w.Schedule
 		w.Schedule = &sc

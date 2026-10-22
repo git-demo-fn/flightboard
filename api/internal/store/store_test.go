@@ -1,7 +1,9 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -128,7 +130,10 @@ func TestListWorkOrdersTypeOfWorkFilter(t *testing.T) {
 
 func TestCreateWorkOrderAssignsIDAndDefaults(t *testing.T) {
 	s := seeded(t)
-	created, err := s.CreateWorkOrder(workorder.WorkOrder{Title: "New draft", Status: workorder.StatusDraft, ProviderID: "p-101"})
+	created, err := s.CreateWorkOrder(workorder.WorkOrder{
+		Title: "New draft", Status: workorder.StatusDraft, ProviderID: "p-101",
+		Expenses: []workorder.Expense{{ID: "caller-expense"}},
+	})
 	if err != nil {
 		t.Fatalf("CreateWorkOrder: %v", err)
 	}
@@ -140,6 +145,9 @@ func TestCreateWorkOrderAssignsIDAndDefaults(t *testing.T) {
 	}
 	if created.Health != workorder.HealthOnTrack {
 		t.Fatalf("health = %q", created.Health)
+	}
+	if len(created.Expenses) != 0 {
+		t.Fatalf("new work order has caller-supplied expenses: %+v", created.Expenses)
 	}
 	if _, err := s.GetWorkOrder(created.ID); err != nil {
 		t.Fatalf("GetWorkOrder after create: %v", err)
@@ -209,5 +217,153 @@ func TestReturnedValuesAreCopies(t *testing.T) {
 	again, _ := s.GetWorkOrder(9631810)
 	if again.Tasks[0].Title == "changed" {
 		t.Fatal("caller mutation leaked into the store")
+	}
+}
+
+func TestExpenses(t *testing.T) {
+	s := seeded(t)
+	expenses, err := s.Expenses(9631810)
+	if err != nil {
+		t.Fatalf("Expenses: %v", err)
+	}
+	if len(expenses) != 2 {
+		t.Fatalf("got %d expenses, want 2", len(expenses))
+	}
+	w, err := s.GetWorkOrder(9631810)
+	if err != nil || w.Status != workorder.StatusAssigned || !slices.Equal(w.Expenses, expenses) {
+		t.Fatalf("seeded work order = %+v, err = %v", w, err)
+	}
+	for i, e := range expenses {
+		if err := workorder.ValidateExpense(e); err != nil || e.CreatedAt.IsZero() {
+			t.Fatalf("invalid seeded expense: %+v, err = %v", e, err)
+		}
+		wantCategory := []workorder.ExpenseCategory{workorder.ExpenseParts, workorder.ExpenseMileage}[i]
+		wantStatus := []workorder.ExpenseStatus{workorder.ExpensePending, workorder.ExpenseApproved}[i]
+		if e.Category != wantCategory || e.Status != wantStatus {
+			t.Fatalf("seed expense %d = %+v", i, e)
+		}
+	}
+	empty, err := s.Expenses(9631801)
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("empty Expenses = %v, err = %v", empty, err)
+	}
+	data, err := json.Marshal(empty)
+	if err != nil || string(data) != "[]" {
+		t.Fatalf("empty expenses JSON = %s, err = %v", data, err)
+	}
+}
+
+func TestAddExpense(t *testing.T) {
+	s := seeded(t)
+	input := workorder.Expense{
+		ID: "caller-id", Category: workorder.ExpenseTools, Description: "Cable tester rental", AmountCents: 3500,
+		Status: workorder.ExpenseRejected, CreatedAt: time.Unix(1, 0), Reason: "caller reason",
+	}
+	before := time.Now()
+	added, err := s.AddExpense(9631810, input)
+	if err != nil {
+		t.Fatalf("AddExpense: %v", err)
+	}
+	if added.ID != "e3" || added.Status != workorder.ExpensePending || added.Reason != "" {
+		t.Fatalf("server fields not assigned: %+v", added)
+	}
+	if added.CreatedAt.Before(before) || added.CreatedAt.After(time.Now()) {
+		t.Fatalf("createdAt = %v, want current time", added.CreatedAt)
+	}
+	if added.Category != input.Category || added.Description != input.Description || added.AmountCents != input.AmountCents {
+		t.Fatalf("expense details changed: %+v", added)
+	}
+	again, err := s.AddExpense(9631810, input)
+	if err != nil || again.ID != "e4" {
+		t.Fatalf("second expense = %+v, err = %v", again, err)
+	}
+	expenses, err := s.Expenses(9631810)
+	if err != nil || len(expenses) != 4 || expenses[2] != added || expenses[3] != again {
+		t.Fatalf("stored expenses = %+v, err = %v", expenses, err)
+	}
+	input.AmountCents = 0
+	if _, err := s.AddExpense(9631810, input); !errors.Is(err, workorder.ErrInvalid) {
+		t.Fatalf("invalid expense err = %v, want ErrInvalid", err)
+	}
+	unchanged, err := s.Expenses(9631810)
+	if err != nil || !slices.Equal(unchanged, expenses) {
+		t.Fatalf("invalid expense changed store: %+v, err = %v", unchanged, err)
+	}
+	first, err := s.AddExpense(9631801, workorder.Expense{Category: workorder.ExpenseOther, Description: "Shipping", AmountCents: 500})
+	if err != nil || first.ID != "e1" {
+		t.Fatalf("first expense = %+v, err = %v", first, err)
+	}
+}
+
+func TestSetExpenseStatus(t *testing.T) {
+	s := seeded(t)
+	original, err := s.Expenses(9631810)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []workorder.ExpenseStatus{workorder.ExpenseRejected, workorder.ExpenseApproved, workorder.ExpensePending} {
+		updated, err := s.SetExpenseStatus(9631810, "e1", status, "Not covered")
+		if err != nil {
+			t.Fatalf("SetExpenseStatus(%s): %v", status, err)
+		}
+		want := original[0]
+		want.Status = status
+		if status == workorder.ExpenseRejected {
+			want.Reason = "Not covered"
+		}
+		if updated != want {
+			t.Fatalf("updated = %+v, want %+v", updated, want)
+		}
+		expenses, err := s.Expenses(9631810)
+		if err != nil || expenses[0] != want || expenses[1] != original[1] {
+			t.Fatalf("stored expenses = %+v, err = %v", expenses, err)
+		}
+	}
+	if _, err := s.SetExpenseStatus(9631810, "missing", workorder.ExpenseApproved, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown expense err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.SetExpenseStatus(9631810, "e1", "Unknown", ""); !errors.Is(err, workorder.ErrInvalid) {
+		t.Fatalf("unknown status err = %v, want ErrInvalid", err)
+	}
+	after, err := s.Expenses(9631810)
+	if err != nil || !slices.Equal(after, original) {
+		t.Fatalf("failed update changed expenses: %+v, err = %v", after, err)
+	}
+}
+
+func TestExpensesUnknownWorkOrder(t *testing.T) {
+	s := seeded(t)
+	if _, err := s.Expenses(1); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Expenses unknown id err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.AddExpense(1, workorder.Expense{Category: workorder.ExpenseParts, Description: "Cable", AmountCents: 100}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("AddExpense unknown id err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.SetExpenseStatus(1, "e1", workorder.ExpenseApproved, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("SetExpenseStatus unknown id err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestReturnedExpensesAreCopies(t *testing.T) {
+	s := seeded(t)
+	original, _ := s.Expenses(9631810)
+	list, _ := s.Expenses(9631810)
+	list[0].Description = "changed through Expenses"
+	w, _ := s.GetWorkOrder(9631810)
+	w.Expenses[0].Description = "changed through GetWorkOrder"
+	orders := s.ListWorkOrders(Filter{Status: workorder.StatusAssigned})
+	for _, w := range orders {
+		if w.ID == 9631810 {
+			w.Expenses[0].Description = "changed through ListWorkOrders"
+		}
+	}
+	updated, err := s.SetTaskDone(9631810, "t1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated.Expenses[0].Description = "changed through update"
+	again, err := s.Expenses(9631810)
+	if err != nil || !slices.Equal(again, original) {
+		t.Fatalf("caller mutation leaked into store: %+v, err = %v", again, err)
 	}
 }

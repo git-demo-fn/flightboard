@@ -514,6 +514,24 @@
         "end": "2026-10-19T12:00:00-05:00"
       },
       "checkIn": "2026-10-19T08:04:00-05:00",
+      "expenses": [
+        {
+          "id": "e1",
+          "category": "Parts",
+          "description": "Replacement patch cables",
+          "amountCents": 2400,
+          "status": "Pending",
+          "createdAt": "2026-10-19T08:30:00-05:00"
+        },
+        {
+          "id": "e2",
+          "category": "Mileage",
+          "description": "Travel to the service location",
+          "amountCents": 1800,
+          "status": "Approved",
+          "createdAt": "2026-10-19T08:05:00-05:00"
+        }
+      ],
       "pay": {
         "type": "Hourly",
         "rate": 65,
