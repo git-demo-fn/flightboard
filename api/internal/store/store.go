@@ -109,6 +109,21 @@ func (s *Store) GetWorkOrder(id int) (workorder.WorkOrder, error) {
 	return clone(w), nil
 }
 
+// DeleteWorkOrder removes a work order only while it is a draft.
+func (s *Store) DeleteWorkOrder(id int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, ok := s.workOrders[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if w.Status != workorder.StatusDraft {
+		return fmt.Errorf("%w: only draft work orders can be deleted", ErrConflict)
+	}
+	delete(s.workOrders, id)
+	return nil
+}
+
 // CreateWorkOrder validates w, assigns an id, and stores it.
 func (s *Store) CreateWorkOrder(w workorder.WorkOrder) (workorder.WorkOrder, error) {
 	if err := workorder.ValidateNew(w); err != nil {

@@ -32,6 +32,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/work-orders", s.createWorkOrder)
 	s.mux.HandleFunc("GET /api/work-orders/summary", s.workOrderSummary)
 	s.mux.HandleFunc("GET /api/work-orders/{id}", s.getWorkOrder)
+	s.mux.HandleFunc("DELETE /api/work-orders/{id}", s.deleteWorkOrder)
 	s.mux.HandleFunc("GET /api/work-orders/{id}/progress", s.workOrderProgress)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/status", s.setStatus)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-in", s.checkIn)
@@ -108,6 +109,18 @@ func (s *Server) getWorkOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	wo, err := s.store.GetWorkOrder(id)
 	s.respond(w, http.StatusOK, wo, err)
+}
+
+func (s *Server) deleteWorkOrder(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteWorkOrder(id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type taskCounts struct {

@@ -68,6 +68,7 @@ A change to a status or a pay type usually touches the Go model, `web/src/api/ty
 | `POST /api/work-orders` | Create a work order as `Draft` or `Published` |
 | `GET /api/work-orders/summary` | Total work orders and counts for every status |
 | `GET /api/work-orders/{id}` | One work order |
+| `DELETE /api/work-orders/{id}` | Delete a Draft work order; returns 204, or 409 for any other status |
 | `GET /api/work-orders/{id}/progress` | Done and total task counts by group and overall, with a rounded-down completion percent |
 | `POST /api/work-orders/{id}/status` | Move to a new status, body `{"status":"Approved"}` |
 | `POST /api/work-orders/{id}/check-in` | Record check-in, body `{"time":"<RFC 3339>"}` or `{}` for now |

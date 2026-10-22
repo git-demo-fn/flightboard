@@ -154,6 +154,105 @@ func TestGetWorkOrder(t *testing.T) {
 	}
 }
 
+func TestDeleteDraftWorkOrder(t *testing.T) {
+	s := newTestServer(t)
+	path := "/api/work-orders/9631801"
+	rec := do(t, s, "DELETE", path, "")
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Fatalf("delete code = %d body %q, want 204 with no body", rec.Code, rec.Body.String())
+	}
+	rec = do(t, s, "GET", path, "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("get deleted work order code = %d body %s", rec.Code, rec.Body)
+	}
+	if got := decode[map[string]string](t, rec); !maps.Equal(got, map[string]string{"error": "not found"}) {
+		t.Errorf("error body = %v", got)
+	}
+	rec = do(t, s, "GET", "/api/work-orders", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list code = %d body %s", rec.Code, rec.Body)
+	}
+	list := decode[[]woJSON](t, rec)
+	if len(list) != 24 {
+		t.Errorf("list count = %d, want 24", len(list))
+	}
+	for _, wo := range list {
+		if wo.ID == 9631801 {
+			t.Error("deleted work order remains in list")
+		}
+	}
+	rec = do(t, s, "GET", "/api/work-orders/summary", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("summary code = %d body %s", rec.Code, rec.Body)
+	}
+	summary := decode[struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"byStatus"`
+	}](t, rec)
+	wantCounts := map[string]int{
+		"Draft": 2, "Published": 3, "Routed": 3, "Assigned": 8,
+		"Work Done": 3, "Approved": 2, "Paid": 2, "Cancelled": 1,
+	}
+	if summary.Total != 24 || !maps.Equal(summary.ByStatus, wantCounts) {
+		t.Errorf("summary = %+v, want total 24 and counts %v", summary, wantCounts)
+	}
+}
+
+func TestDeleteNonDraftWorkOrder(t *testing.T) {
+	s := newTestServer(t)
+	for _, wo := range s.store.ListWorkOrders(store.Filter{}) {
+		if wo.Status == workorder.StatusDraft {
+			continue
+		}
+		t.Run(string(wo.Status)+"/"+strconv.Itoa(wo.ID), func(t *testing.T) {
+			path := "/api/work-orders/" + strconv.Itoa(wo.ID)
+			before := do(t, s, "GET", path, "")
+			if before.Code != http.StatusOK {
+				t.Fatalf("get code = %d body %s", before.Code, before.Body)
+			}
+			rec := do(t, s, "DELETE", path, "")
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("delete code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q", got)
+			}
+			want := map[string]string{"error": "conflict: only draft work orders can be deleted"}
+			if got := decode[map[string]string](t, rec); !maps.Equal(got, want) {
+				t.Errorf("error body = %v, want %v", got, want)
+			}
+			after := do(t, s, "GET", path, "")
+			if after.Code != http.StatusOK || after.Body.String() != before.Body.String() {
+				t.Errorf("work order changed after rejected delete: code %d body %s", after.Code, after.Body)
+			}
+		})
+	}
+}
+
+func TestDeleteWorkOrderErrors(t *testing.T) {
+	for _, tt := range []struct {
+		id   string
+		code int
+		err  string
+	}{
+		{id: "1", code: http.StatusNotFound, err: "not found"},
+		{id: "abc", code: http.StatusBadRequest, err: "id must be a number"},
+	} {
+		t.Run(tt.id, func(t *testing.T) {
+			rec := do(t, newTestServer(t), "DELETE", "/api/work-orders/"+tt.id, "")
+			if rec.Code != tt.code {
+				t.Fatalf("code = %d body %s", rec.Code, rec.Body)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("Content-Type = %q", got)
+			}
+			if got := decode[map[string]string](t, rec); !maps.Equal(got, map[string]string{"error": tt.err}) {
+				t.Errorf("error body = %v, want error %q", got, tt.err)
+			}
+		})
+	}
+}
+
 func TestWorkOrderProgress(t *testing.T) {
 	s := newTestServer(t)
 	for _, tt := range []struct {
