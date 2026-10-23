@@ -104,3 +104,25 @@ export interface PayQuote {
   lines: { label: string; amount: number }[]
   total: number
 }
+
+/** One work order in a POST /pay/quotes request. */
+export interface PayRunQuoteItem {
+  id: number
+  pay: Pay
+  approvedExpenseCents: number
+}
+
+/** One work order in a POST /pay/quotes response. */
+export interface PayRunQuoteLine {
+  id: number
+  labor: number
+  expenses: number
+  total: number
+}
+
+/** The response of POST /pay/quotes. */
+export interface PayRunQuote {
+  items: PayRunQuoteLine[]
+  count: number
+  total: number
+}
