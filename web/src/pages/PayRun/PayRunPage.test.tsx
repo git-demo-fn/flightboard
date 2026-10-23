@@ -58,6 +58,40 @@ beforeEach(() => {
 })
 
 describe('PayRunPage', () => {
+  it.each([50, 51])('enforces the payment limit with %i selected work orders', async (count) => {
+    const orders = Array.from({ length: count }, (_, index) => makeWorkOrder({
+      id: index + 1,
+      status: 'Approved',
+      pay: { type: 'Fixed', rate: 1 },
+    }))
+    vi.mocked(api.listWorkOrders).mockResolvedValueOnce(orders).mockResolvedValueOnce([])
+    vi.mocked(payApi.quotes).mockResolvedValue({
+      items: orders.map(({ id }) => ({ id, labor: 1, expenses: 0, total: 1 })),
+      count,
+      total: count,
+    })
+    vi.mocked(api.payRun).mockResolvedValue({ count: 50, paidAt, workOrders: [] })
+    renderAt(<PayRunPage />)
+    await screen.findByText(`$${count}.00`)
+
+    const payButton = screen.getByRole('button', { name: `Pay ${count} work orders` })
+    if (count === 51) {
+      expect(payButton).toBeDisabled()
+      expect(screen.getByRole('alert')).toHaveTextContent('A pay run can include at most 50 work orders.')
+      fireEvent.click(payButton)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(api.payRun).not.toHaveBeenCalled()
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Select WO 51' }))
+    }
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pay 50 work orders' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Pay 50 work orders' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Mark as Paid' }))
+    expect(api.payRun).toHaveBeenCalledExactlyOnceWith(orders.slice(0, 50).map(({ id }) => id))
+    expect(await screen.findByText('No approved work orders to pay.')).toBeInTheDocument()
+  })
+
   it('labels the pay button for the selection and disables it when no rows are selected', async () => {
     renderAt(<PayRunPage />)
     await screen.findByText('$356.00')

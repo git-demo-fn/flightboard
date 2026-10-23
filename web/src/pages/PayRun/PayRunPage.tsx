@@ -27,6 +27,8 @@ import { formatDate, formatMoney } from '../../lib/format'
 import { payableWorkOrders, payButtonLabel, selectedTotal, toQuoteItems, workOrderCount } from '../../lib/payRun'
 import { colors } from '../../theme'
 
+const maxPayRunOrders = 50
+
 async function loadQuotes(items: PayRunQuoteItem[]): Promise<PayRunQuote> {
   const quoted: PayRunQuote['items'] = []
   for (let offset = 0; offset < items.length; offset += 100) {
@@ -55,13 +57,15 @@ function PayRunTable({ payable, onPaid }: {
     JSON.stringify(items),
   )
   const allSelected = selected.size === payable.length
+  const selectionTooLarge = selected.size > maxPayRunOrders
+  const paymentDisabled = !selected.size || selectionTooLarge || loading || !!error || !quote || running
   const total = quote ? selectedTotal(quote, selected) : 0
   const selectedOrders = payable.filter((wo) => selected.has(wo.id))
   const moneyText = (amount?: number) =>
     loading ? '...' : error || amount === undefined ? '--' : formatMoney(amount)
 
   async function markAsPaid() {
-    if (running || loading || error || !quote || !selected.size) return
+    if (paymentDisabled) return
     setRunning(true)
     setRunError(null)
     try {
@@ -78,6 +82,7 @@ function PayRunTable({ payable, onPaid }: {
   return (
     <>
       {error && <Alert severity="warning">Pay service unavailable: {error.message}</Alert>}
+      {selectionTooLarge && <Alert severity="warning">A pay run can include at most {maxPayRunOrders} work orders.</Alert>}
       <Card>
         <TableContainer>
           <Table size="small" aria-label="Approved work orders">
@@ -149,7 +154,7 @@ function PayRunTable({ payable, onPaid }: {
             </Typography>
             <Button
               variant="contained"
-              disabled={!selected.size || loading || !!error || running}
+              disabled={paymentDisabled}
               onClick={() => { setRunError(null); setDialogOpen(true) }}
             >
               {payButtonLabel(selected.size)}
@@ -187,7 +192,7 @@ function PayRunTable({ payable, onPaid }: {
         </DialogContent>
         <DialogActions>
           <Button disabled={running} onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" disabled={running} onClick={markAsPaid}>Mark as Paid</Button>
+          <Button variant="contained" disabled={paymentDisabled} onClick={markAsPaid}>Mark as Paid</Button>
         </DialogActions>
       </Dialog>
     </>
