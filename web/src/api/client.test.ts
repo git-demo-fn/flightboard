@@ -197,3 +197,31 @@ it('creates work order fixtures with zero expense totals', () => {
   const expenseTotals = { pendingCents: 1250, approvedCents: 500, rejectedCents: 100 }
   expect(makeWorkOrder({ expenseTotals }).expenseTotals).toEqual(expenseTotals)
 })
+
+describe('nearby providers', () => {
+  it('sends a GET to the nearby providers endpoint and returns the JSON', async () => {
+    const providers = [
+      { id: 'p-101', name: 'Dana Whitfield', score: 97, city: 'Minneapolis', state: 'MN' },
+      { id: 'p-104', name: 'Tomas Lindqvist', score: 89, city: 'Saint Paul', state: 'MN' },
+    ]
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(providers)))
+
+    await expect(api.nearbyProviders(9631805)).resolves.toEqual(providers)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [path, init] = fetchMock.mock.calls[0]
+    expect(path).toBe('/api/work-orders/9631805/nearby-providers')
+    expect(init?.method ?? 'GET').toBe('GET')
+    expect(init?.body).toBeUndefined()
+  })
+
+  it('propagates a 404 with the server message as an ApiError', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Work order not found' }), { status: 404 }),
+    )
+
+    const result = api.nearbyProviders(9631805)
+    await expect(result).rejects.toBeInstanceOf(ApiError)
+    await expect(result).rejects.toMatchObject({ status: 404, message: 'Work order not found' })
+  })
+})

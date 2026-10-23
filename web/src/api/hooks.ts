@@ -51,3 +51,7 @@ export function useWorkOrder(id: number) {
 export function usePayQuote(pay: Pay) {
   return useAsync<PayQuote>(() => payApi.quote(pay), JSON.stringify(pay))
 }
+
+export function useNearbyProviders(workOrderId: number) {
+  return useAsync(() => api.nearbyProviders(workOrderId), `nearby-providers-${workOrderId}`)
+}

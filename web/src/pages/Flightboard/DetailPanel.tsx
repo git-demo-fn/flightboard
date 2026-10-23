@@ -15,6 +15,7 @@ import type { WorkOrder } from '../../api/types'
 import { ScoreBadge, StatusChip } from '../../components/Chips'
 import { formatDuration, formatMoney, formatTime, minutesBetween } from '../../lib/format'
 import { colors } from '../../theme'
+import { NearbyProviders } from './NearbyProviders'
 
 /** A check-in counts as on time up to this many minutes after the scheduled start. */
 const ON_TIME_GRACE_MINUTES = 15
@@ -129,6 +130,14 @@ export function DetailPanel({ workOrder: wo, onClose }: Props) {
           Open work order
         </Button>
       </Box>
+      {!wo.provider && ['Draft', 'Published', 'Routed'].includes(wo.status) && (
+        <>
+          <Divider />
+          <Box sx={{ p: 2 }}>
+            <NearbyProviders workOrder={wo} />
+          </Box>
+        </>
+      )}
       <Divider />
       <Box sx={{ p: 2 }}>
         <Box sx={{ mb: 1.5 }}>{label('Time on site')}</Box>

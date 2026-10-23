@@ -50,6 +50,8 @@ export const api = {
   rejectExpense: (workOrderId: number, expenseId: string, reason: string) =>
     post<Expense>(`/api/work-orders/${workOrderId}/expenses/${expenseId}/reject`, { reason }),
   listProviders: () => request<Provider[]>('/api/providers'),
+  nearbyProviders: (workOrderId: number) =>
+    request<Provider[]>(`/api/work-orders/${workOrderId}/nearby-providers`),
 }
 
 // Pay quotes come from the PHP pay service (/pay), called directly by the web.
