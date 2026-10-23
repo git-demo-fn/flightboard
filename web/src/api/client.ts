@@ -1,4 +1,4 @@
-import type { Expense, NewWorkOrder, Pay, PayQuote, PayRunQuote, PayRunQuoteItem, PayRunResult, Provider, Status, WorkOrder } from './types'
+import type { Expense, NewWorkOrder, Pay, PayQuote, PayRunQuote, PayRunQuoteItem, PayRunResult, Provider, Status, WorkOrder, WorkOrderWeek } from './types'
 
 /** ApiError carries the HTTP status and the server's error message. */
 export class ApiError extends Error {
@@ -30,6 +30,10 @@ const post = <T>(path: string, body: unknown) =>
 export const api = {
   listWorkOrders: () => request<WorkOrder[]>('/api/work-orders'),
   getWorkOrder: (id: number) => request<WorkOrder>(`/api/work-orders/${id}`),
+  getWeek: (start: string, providerId?: string) =>
+    request<WorkOrderWeek>(
+      `/api/work-orders/week?${new URLSearchParams(providerId ? { start, providerId } : { start })}`,
+    ),
   createWorkOrder: (wo: NewWorkOrder) => post<WorkOrder>('/api/work-orders', wo),
   setStatus: (id: number, status: Status) =>
     post<WorkOrder>(`/api/work-orders/${id}/status`, { status }),

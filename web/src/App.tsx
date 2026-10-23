@@ -4,6 +4,7 @@ import { TopBar } from './components/TopBar'
 import { FlightboardPage } from './pages/Flightboard/FlightboardPage'
 import { NewWorkOrderPage } from './pages/NewWorkOrder/NewWorkOrderPage'
 import { PayRunPage } from './pages/PayRun/PayRunPage'
+import { SchedulePage } from './pages/Schedule/SchedulePage'
 import { WorkOrderDetailPage } from './pages/WorkOrderDetail/WorkOrderDetailPage'
 
 function Layout() {
@@ -23,6 +24,7 @@ export function AppRoutes() {
         <Route path="work-orders/new" element={<NewWorkOrderPage />} />
         <Route path="work-orders/pay-run" element={<PayRunPage />} />
         <Route path="work-orders/:id" element={<WorkOrderDetailPage />} />
+        <Route path="schedule" element={<SchedulePage />} />
       </Route>
     </Routes>
   )

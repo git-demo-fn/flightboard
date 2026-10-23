@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, payApi } from './client'
-import type { Expense, PayQuote, PayRunQuote, PayRunQuoteItem, PayRunResult } from './types'
+import type { Expense, PayQuote, PayRunQuote, PayRunQuoteItem, PayRunResult, WorkOrderWeek } from './types'
 import { makeWorkOrder } from '../test/fixtures'
 
 const workOrder = makeWorkOrder()
@@ -223,5 +223,23 @@ describe('nearby providers', () => {
     const result = api.nearbyProviders(9631805)
     await expect(result).rejects.toBeInstanceOf(ApiError)
     await expect(result).rejects.toMatchObject({ status: 404, message: 'Work order not found' })
+  })
+})
+
+describe('week', () => {
+  it.each([
+    [undefined, '/api/work-orders/week?start=2026-10-19'],
+    ['p-101', '/api/work-orders/week?start=2026-10-19&providerId=p-101'],
+  ])('fetches a week with providerId %s', async (providerId, path) => {
+    const response: WorkOrderWeek = {
+      start: '2026-10-19', end: '2026-10-25', total: 0, unassigned: 0, days: [],
+    }
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(response)))
+
+    await expect(api.getWeek('2026-10-19', providerId)).resolves.toEqual(response)
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(path, {
+      headers: { 'Content-Type': 'application/json' },
+    })
   })
 })

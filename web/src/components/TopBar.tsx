@@ -15,6 +15,7 @@ import { colors } from '../theme'
 
 const NAV = [
   { label: 'Work', to: '/' },
+  { label: 'Schedule', to: '/schedule' },
   { label: 'Workforce', to: null },
   { label: 'Insights', to: null },
 ]
@@ -40,7 +41,8 @@ export function TopBar() {
         </IconButton>
         <Box component="nav" sx={{ display: 'flex', alignSelf: 'stretch', ml: 1 }}>
           {NAV.map((item) => {
-            const active = item.label === 'Work' && workActive
+            const active = (item.label === 'Work' && workActive)
+              || (item.label === 'Schedule' && pathname.startsWith('/schedule'))
             return (
               <Box
                 key={item.label}
