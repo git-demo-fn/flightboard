@@ -72,6 +72,26 @@ describe('FlightboardPage', () => {
     expect(screen.queryByText('Fix kiosk')).not.toBeInTheDocument()
   })
 
+  it('filters by type of work without regard to case and updates counts', async () => {
+    vi.mocked(api.listWorkOrders).mockResolvedValue([
+      makeWorkOrder({ id: 1000002, title: 'Mount projector', typeOfWork: 'Audio Visual', status: 'Assigned' }),
+      makeWorkOrder({ id: 1000001, title: 'Fix kiosk', status: 'Assigned' }),
+    ])
+    renderAt(<FlightboardPage />)
+    await screen.findByText('Mount projector')
+    expect(screen.getByText('Fix kiosk')).toBeInTheDocument()
+
+    const search = screen.getByRole('textbox', { name: 'Search work orders' })
+    for (const query of ['audio', 'AUDIO', '  audio  ']) {
+      await userEvent.clear(search)
+      await userEvent.type(search, query)
+
+      expect(screen.getByText('Mount projector')).toBeInTheDocument()
+      expect(screen.queryByText('Fix kiosk')).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'In-Flight (1)' })).toBeInTheDocument()
+    }
+  })
+
   it('opens the detail panel with check-in and total cost on row click', async () => {
     renderAt(<FlightboardPage />)
     await userEvent.click(await screen.findByText('Fix kiosk'))

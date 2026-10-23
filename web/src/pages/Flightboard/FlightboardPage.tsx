@@ -19,7 +19,7 @@ import { WorkOrderTable } from './WorkOrderTable'
 function matchesSearch(wo: WorkOrder, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return [String(wo.id), wo.title, wo.buyer, wo.provider?.name ?? '', wo.location.city]
+  return [String(wo.id), wo.title, wo.typeOfWork, wo.buyer, wo.provider?.name ?? '', wo.location.city]
     .some((field) => field.toLowerCase().includes(q))
 }
 
@@ -54,7 +54,7 @@ export function FlightboardPage() {
       <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <Card sx={{ p: 1.5 }}>
           <TextField
-            placeholder="Search by ID, title, buyer, provider or city"
+            placeholder="Search by ID, title, type of work, buyer, provider or city"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             sx={{ maxWidth: 480, bgcolor: '#FFFFFF' }}
