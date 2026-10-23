@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, payApi } from './client'
-import type { Pay, PayQuote, WorkOrder } from './types'
+import type { Pay, PayQuote, WorkOrder, WorkOrderWeek } from './types'
 
 export interface AsyncState<T> {
   data: T | null
@@ -46,6 +46,10 @@ export function useWorkOrders() {
 
 export function useWorkOrder(id: number) {
   return useAsync<WorkOrder>(() => api.getWorkOrder(id), `work-order-${id}`)
+}
+
+export function useWeek(start: string, providerId?: string) {
+  return useAsync<WorkOrderWeek>(() => api.getWeek(start, providerId), `week-${start}-${providerId ?? ''}`)
 }
 
 export function usePayQuote(pay: Pay) {
