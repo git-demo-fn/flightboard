@@ -102,6 +102,7 @@ func (s *Server) listWorkOrders(w http.ResponseWriter, r *http.Request) {
 		f.Status = st
 	}
 	f.ProviderID = r.URL.Query().Get("providerId")
+	f.TypeOfWork = r.URL.Query().Get("typeOfWork")
 
 	list := s.store.ListWorkOrders(f)
 	out := make([]workOrderView, 0, len(list))
