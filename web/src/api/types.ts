@@ -94,6 +94,35 @@ export interface WorkOrder {
   health: Health
 }
 
+/** One work order on the Schedule page, from GET /api/work-orders/week. */
+export interface WeekWorkOrder {
+  id: number
+  title: string
+  status: Status
+  subStatus?: SubStatus
+  health: Health
+  start: string
+  end: string
+  location: { city: string; state: string }
+  provider: { id: string; name: string } | null
+}
+
+export interface WeekDay {
+  date: string
+  total: number
+  unassigned: number
+  workOrders: WeekWorkOrder[]
+}
+
+/** The response of GET /api/work-orders/week. */
+export interface WorkOrderWeek {
+  start: string
+  end: string
+  total: number
+  unassigned: number
+  days: WeekDay[]
+}
+
 /** Body for POST /api/work-orders. */
 export type NewWorkOrder = Pick<
   WorkOrder,
