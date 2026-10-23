@@ -87,6 +87,7 @@ export interface WorkOrder {
   schedule?: { start: string; end: string }
   checkIn?: string
   checkOut?: string
+  paidAt?: string
   pay: Pay
   expenseTotals: ExpenseTotals
   tasks: Task[]
@@ -125,4 +126,11 @@ export interface PayRunQuote {
   items: PayRunQuoteLine[]
   count: number
   total: number
+}
+
+/** The response of POST /api/work-orders/pay-run. */
+export interface PayRunResult {
+  count: number
+  paidAt: string
+  workOrders: { id: number; title: string; status: Status; paidAt: string }[]
 }
