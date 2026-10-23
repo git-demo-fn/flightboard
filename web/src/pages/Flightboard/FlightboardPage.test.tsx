@@ -7,7 +7,7 @@ import { renderAt } from '../../test/render'
 import { FlightboardPage } from './FlightboardPage'
 
 vi.mock('../../api/client', () => ({
-  api: { listWorkOrders: vi.fn() },
+  api: { listWorkOrders: vi.fn(), nearbyProviders: vi.fn() },
   payApi: { quote: vi.fn() },
 }))
 
@@ -18,6 +18,7 @@ const workOrders = [
 ]
 
 beforeEach(() => {
+  vi.mocked(api.nearbyProviders).mockReset().mockResolvedValue([])
   vi.mocked(api.listWorkOrders).mockResolvedValue(workOrders)
   vi.mocked(payApi.quote).mockResolvedValue({
     type: 'Hourly',
@@ -112,5 +113,18 @@ describe('FlightboardPage', () => {
     renderAt(<FlightboardPage />)
 
     expect(await screen.findByText(/Could not load work orders: boom/)).toBeInTheDocument()
+  })
+
+  it('shows nearby providers only for an unassigned work order', async () => {
+    renderAt(<FlightboardPage />)
+    await userEvent.click(await screen.findByText('Mount screens'))
+
+    expect(screen.getByRole('region', { name: 'Nearby providers' })).toBeInTheDocument()
+    expect(api.nearbyProviders).toHaveBeenCalledWith(1000002)
+
+    await userEvent.click(screen.getByText('Fix kiosk'))
+
+    expect(screen.queryByRole('region', { name: 'Nearby providers' })).not.toBeInTheDocument()
+    expect(api.nearbyProviders).not.toHaveBeenCalledWith(1000003)
   })
 })
