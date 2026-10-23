@@ -27,6 +27,13 @@ beforeEach(() => {
 })
 
 describe('FlightboardPage', () => {
+  it('links to the Pay run page', async () => {
+    renderAt(<FlightboardPage />)
+    await screen.findByText('Fix kiosk')
+
+    expect(screen.getByRole('link', { name: 'Pay run' })).toHaveAttribute('href', '/work-orders/pay-run')
+  })
+
   it('shows tab counts and the In-Flight work orders by default', async () => {
     renderAt(<FlightboardPage />)
 

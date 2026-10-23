@@ -41,9 +41,14 @@ export function FlightboardPage() {
       <PageHeader
         title="Flightboard"
         actions={
-          <Button variant="outlined" component={RouterLink} to="/work-orders/new">
-            Create work order
-          </Button>
+          <>
+            <Button variant="outlined" component={RouterLink} to="/work-orders/pay-run">
+              Pay run
+            </Button>
+            <Button variant="outlined" component={RouterLink} to="/work-orders/new">
+              Create work order
+            </Button>
+          </>
         }
       />
       <Box sx={{ p: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
