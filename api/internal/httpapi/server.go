@@ -32,6 +32,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/work-orders", s.listWorkOrders)
 	s.mux.HandleFunc("POST /api/work-orders", s.createWorkOrder)
 	s.mux.HandleFunc("GET /api/work-orders/summary", s.workOrderSummary)
+	s.mux.HandleFunc("GET /api/work-orders/week", s.workOrderWeek)
 	s.mux.HandleFunc("GET /api/work-orders/{id}", s.getWorkOrder)
 	s.mux.HandleFunc("GET /api/work-orders/{id}/progress", s.workOrderProgress)
 	s.mux.HandleFunc("GET /api/work-orders/{id}/nearby-providers", s.workOrderNearbyProviders)
