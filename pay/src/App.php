@@ -10,6 +10,7 @@ namespace Flightboard\Pay;
  * Routes:
  *   GET  /health  -> {"status":"ok"}
  *   POST /quote   -> a quote from PayCalculator::quote()
+ *   POST /quotes  -> batch labor and approved expense totals
  */
 final class App
 {
@@ -25,8 +26,26 @@ final class App
         return match ($route) {
             'GET /health' => [200, ['status' => 'ok']],
             'POST /quote' => $this->quote($body),
+            'POST /quotes' => $this->quotes($body),
             default => [404, ['error' => 'not found']],
         };
+    }
+
+    /** @return array{0: int, 1: array<string, mixed>} */
+    private function quotes(string $body): array
+    {
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded)) {
+            return [400, ['error' => 'invalid JSON body']];
+        }
+
+        try {
+            return [200, (new BatchQuoter($this->calculator))->quote($decoded['items'] ?? null)];
+        } catch (InvalidPay $e) {
+            return [400, ['error' => $e->getMessage()]];
+        } catch (UnsupportedPayType $e) {
+            return [422, ['error' => $e->getMessage()]];
+        }
     }
 
     /** @return array{0: int, 1: array<string, mixed>} */
