@@ -38,6 +38,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/work-orders/{id}/status", s.setStatus)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-in", s.checkIn)
 	s.mux.HandleFunc("POST /api/work-orders/{id}/check-out", s.checkOut)
+	s.mux.HandleFunc("POST /api/work-orders/pay-run", s.payRun)
 	s.mux.HandleFunc("PATCH /api/work-orders/{id}/tasks/{taskId}", s.updateTask)
 	s.mux.HandleFunc("GET /api/providers", s.listProviders)
 	s.mux.HandleFunc("GET /api/providers/{id}", s.getProvider)
@@ -53,6 +54,7 @@ type workOrderView struct {
 	workorder.WorkOrder
 	Provider      *workorder.Provider `json:"provider"`
 	ExpenseTotals expenseTotals       `json:"expenseTotals"`
+	PaidAt        time.Time           `json:"paidAt,omitzero"`
 }
 
 type expenseTotals struct {
@@ -79,6 +81,7 @@ func totalsForExpenses(expenses []workorder.Expense) expenseTotals {
 
 func (s *Server) view(w workorder.WorkOrder) workOrderView {
 	v := workOrderView{WorkOrder: w, ExpenseTotals: totalsForExpenses(w.Expenses)}
+	v.PaidAt = w.PaidAt
 	if w.ProviderID != "" {
 		if p, err := s.store.GetProvider(w.ProviderID); err == nil {
 			v.Provider = &p

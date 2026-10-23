@@ -151,10 +151,13 @@ type WorkOrder struct {
 	Schedule   *Schedule  `json:"schedule,omitempty"`
 	CheckIn    *time.Time `json:"checkIn,omitempty"`
 	CheckOut   *time.Time `json:"checkOut,omitempty"`
-	Pay        Pay        `json:"pay"`
-	Tasks      []Task     `json:"tasks"`
-	Expenses   []Expense  `json:"-"`
-	Health     Health     `json:"health"`
+	// PaidAt is when a pay run marked the work order Paid. The server owns it:
+	// clients cannot send it, and the work order view shows it as paidAt.
+	PaidAt   time.Time `json:"-"`
+	Pay      Pay       `json:"pay"`
+	Tasks    []Task    `json:"tasks"`
+	Expenses []Expense `json:"-"`
+	Health   Health    `json:"health"`
 }
 
 // DefaultTasks returns the tasks every new work order starts with.
