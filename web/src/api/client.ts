@@ -1,4 +1,4 @@
-import type { Expense, NewWorkOrder, Pay, PayQuote, Provider, Status, WorkOrder } from './types'
+import type { Expense, NewWorkOrder, Pay, PayQuote, PayRunQuote, PayRunQuoteItem, Provider, Status, WorkOrder } from './types'
 
 /** ApiError carries the HTTP status and the server's error message. */
 export class ApiError extends Error {
@@ -54,4 +54,5 @@ export const api = {
 // Pay quotes come from the PHP pay service (/pay), called directly by the web.
 export const payApi = {
   quote: (pay: Pay, expenses?: Expense[]) => post<PayQuote>('/pay/quote', { ...pay, expenses }),
+  quotes: (items: PayRunQuoteItem[]) => post<PayRunQuote>('/pay/quotes', { items }),
 }

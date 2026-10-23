@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, payApi } from './client'
-import type { Expense, PayQuote } from './types'
+import type { Expense, PayQuote, PayRunQuote, PayRunQuoteItem } from './types'
 import { makeWorkOrder } from '../test/fixtures'
 
 const workOrder = makeWorkOrder()
@@ -119,6 +119,43 @@ describe('pay quotes', () => {
     const result = payApi.quote(workOrder.pay, [expense])
     await expect(result).rejects.toBeInstanceOf(ApiError)
     await expect(result).rejects.toMatchObject({ status: 400, message: 'Invalid expense amount' })
+  })
+})
+
+describe('pay run quotes', () => {
+  const items: PayRunQuoteItem[] = [
+    { id: 9631821, pay: { type: 'Fixed', rate: 140 }, approvedExpenseCents: 0 },
+    { id: 9631822, pay: { type: 'PerDevice', rate: 18, devices: 12 }, approvedExpenseCents: 0 },
+  ]
+  const response: PayRunQuote = {
+    items: [
+      { id: 9631821, labor: 140, expenses: 0, total: 140 },
+      { id: 9631822, labor: 216, expenses: 0, total: 216 },
+    ],
+    count: 2,
+    total: 356,
+  }
+
+  it('posts items to the batch quote endpoint and returns the JSON', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(response)))
+
+    await expect(payApi.quotes(items)).resolves.toEqual(response)
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith('/pay/quotes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    })
+  })
+
+  it('propagates the server message as an ApiError', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Invalid quote items' }), { status: 400 }),
+    )
+
+    const result = payApi.quotes(items)
+    await expect(result).rejects.toBeInstanceOf(ApiError)
+    await expect(result).rejects.toMatchObject({ status: 400, message: 'Invalid quote items' })
   })
 })
 

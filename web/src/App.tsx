@@ -3,6 +3,7 @@ import { Outlet, Route, Routes } from 'react-router-dom'
 import { TopBar } from './components/TopBar'
 import { FlightboardPage } from './pages/Flightboard/FlightboardPage'
 import { NewWorkOrderPage } from './pages/NewWorkOrder/NewWorkOrderPage'
+import { PayRunPage } from './pages/PayRun/PayRunPage'
 import { WorkOrderDetailPage } from './pages/WorkOrderDetail/WorkOrderDetailPage'
 
 function Layout() {
@@ -20,6 +21,7 @@ export function AppRoutes() {
       <Route element={<Layout />}>
         <Route index element={<FlightboardPage />} />
         <Route path="work-orders/new" element={<NewWorkOrderPage />} />
+        <Route path="work-orders/pay-run" element={<PayRunPage />} />
         <Route path="work-orders/:id" element={<WorkOrderDetailPage />} />
       </Route>
     </Routes>
