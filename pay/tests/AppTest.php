@@ -252,6 +252,7 @@ final class AppTest extends TestCase
             'missing items' => ['{}', $listError],
             'empty items' => ['{"items":[]}', $listError],
             'object items' => ['{"items":{"a":1}}', $listError],
+            'numeric-key object items' => ['{"items":{"0":{"id":1,"pay":{"type":"Fixed","rate":140}}}}', $listError],
             '101 items' => [json_encode(['items' => array_fill(0, 101, $item)], JSON_THROW_ON_ERROR), $listError],
             'scalar item' => ['{"items":[5]}', 'item 1: must be an object'],
             'string id' => ['{"items":[{"id":"9631821","pay":{"type":"Fixed","rate":140}}]}', $idError],

@@ -102,6 +102,77 @@ describe('PayRunPage', () => {
     expect(payApi.quotes).toHaveBeenCalledTimes(1)
   })
 
+  it('quotes 101 approved work orders in batches and combines their totals', async () => {
+    const orders = Array.from({ length: 101 }, (_, index) => makeWorkOrder({
+      id: index + 1,
+      status: 'Approved',
+      pay: { type: 'Fixed', rate: 1 },
+      expenseTotals: { pendingCents: 0, approvedCents: 25, rejectedCents: 0 },
+    }))
+    vi.mocked(api.listWorkOrders).mockResolvedValue(orders)
+    vi.mocked(payApi.quotes).mockImplementation(async (items) => {
+      if (items.length > 100) throw new Error('Batch too large')
+      return {
+        items: items.map(({ id }) => ({ id, labor: 1, expenses: 0.25, total: 1.25 })),
+        count: items.length,
+        total: items.length * 1.25,
+      }
+    })
+    renderAt(<PayRunPage />)
+    await screen.findByText('$126.25')
+
+    const batches = vi.mocked(payApi.quotes).mock.calls.map(([items]) => items)
+    expect(batches.map((items) => items.length)).toEqual([100, 1])
+    expect(batches.flat().map((item) => item.id)).toEqual(orders.map((wo) => wo.id))
+    const rows = within(screen.getByRole('table')).getAllByRole('row')
+    expect(rows).toHaveLength(102)
+    for (const row of rows.slice(1)) {
+      expect(within(row).getAllByRole('cell').slice(-3).map((cell) => cell.textContent))
+        .toEqual(['$1.00', '$0.25', '$1.25'])
+    }
+    expect(screen.getByText('101 of 101 selected')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select WO 101' }))
+    expect(screen.getByText('$125.00')).toBeInTheDocument()
+    expect(screen.getByText('100 of 101 selected')).toBeInTheDocument()
+    expect(payApi.quotes).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshes changed monetary inputs for the same ids without resetting selection', async () => {
+    const state = { data: [printer, phones], error: null, loading: false, reload: vi.fn(), setData: vi.fn() }
+    const list = vi.spyOn(hooks, 'useWorkOrders').mockReturnValue(state)
+    function Harness() {
+      const [, refresh] = useReducer((n: number) => n + 1, 0)
+      return <><button onClick={refresh}>Refresh list</button><PayRunPage /></>
+    }
+    renderAt(<Harness />)
+    await screen.findByText('$356.00')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select WO 9631822' }))
+
+    const updatedPrinter = {
+      ...printer,
+      pay: { ...printer.pay, rate: 150 },
+      expenseTotals: { ...printer.expenseTotals, approvedCents: 1250 },
+    }
+    list.mockReturnValue({ ...state, data: [updatedPrinter, phones] })
+    vi.mocked(payApi.quotes).mockResolvedValue({
+      items: [{ id: printer.id, labor: 150, expenses: 12.5, total: 162.5 }, quote.items[1]],
+      count: 2,
+      total: 378.5,
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh list' }))
+
+    await waitFor(() => expect(screen.getAllByText('$162.50')).toHaveLength(2))
+    expect(screen.getByText('$12.50')).toBeInTheDocument()
+    expect(screen.getByText('1 of 2 selected')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select WO 9631821' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Select WO 9631822' })).not.toBeChecked()
+    expect(payApi.quotes).toHaveBeenCalledTimes(2)
+    expect(payApi.quotes).toHaveBeenLastCalledWith([
+      { id: printer.id, pay: updatedPrinter.pay, approvedExpenseCents: 1250 },
+      { id: phones.id, pay: phones.pay, approvedExpenseCents: 0 },
+    ])
+  })
+
   it('shows placeholders while the quote is loading', async () => {
     let resolve!: (value: PayRunQuote) => void
     vi.mocked(payApi.quotes).mockReturnValue(new Promise((done) => { resolve = done }))

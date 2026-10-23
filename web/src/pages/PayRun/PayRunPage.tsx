@@ -16,18 +16,32 @@ import { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import { payApi } from '../../api/client'
 import { useAsync, useWorkOrders } from '../../api/hooks'
-import type { WorkOrder } from '../../api/types'
+import type { PayRunQuote, PayRunQuoteItem, WorkOrder } from '../../api/types'
 import { PageHeader } from '../../components/PageHeader'
 import { formatDate, formatMoney } from '../../lib/format'
 import { payableWorkOrders, selectedTotal, toQuoteItems } from '../../lib/payRun'
 import { colors } from '../../theme'
 
+async function loadQuotes(items: PayRunQuoteItem[]): Promise<PayRunQuote> {
+  const quoted: PayRunQuote['items'] = []
+  for (let offset = 0; offset < items.length; offset += 100) {
+    const batch = await payApi.quotes(items.slice(offset, offset + 100))
+    quoted.push(...batch.items)
+  }
+  return {
+    items: quoted,
+    count: quoted.length,
+    total: quoted.reduce((cents, item) => cents + Math.round(item.total * 100), 0) / 100,
+  }
+}
+
 function PayRunTable({ payable }: { payable: WorkOrder[] }) {
   const ids = payable.map((wo) => wo.id)
+  const items = toQuoteItems(payable)
   const [selected, setSelected] = useState(() => new Set(ids))
   const { data: quote, error, loading } = useAsync(
-    () => payApi.quotes(toQuoteItems(payable)),
-    `pay-run-${ids.join(',')}`,
+    () => loadQuotes(items),
+    JSON.stringify(items),
   )
   const allSelected = selected.size === payable.length
   const moneyText = (amount?: number) =>
