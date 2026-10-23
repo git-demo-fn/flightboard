@@ -68,6 +68,7 @@ A change to a status or a pay type usually touches the Go model, `web/src/api/ty
 | `POST /api/work-orders` | Create a work order as `Draft` or `Published` |
 | `GET /api/work-orders/summary` | Total work orders, counts for every status, and `pendingExpenses`: the number of work orders with at least one `Pending` expense |
 | `GET /api/work-orders/{id}` | One work order with `expenseTotals` |
+| `GET /api/work-orders/week?start=&providerId=` | One week of scheduled work orders by day, from `start` (YYYY-MM-DD) for 7 days, with `total` and `unassigned` counts. Leaves out Cancelled and unscheduled work orders. |
 | `GET /api/work-orders/{id}/progress` | Done and total task counts by group and overall, with a rounded-down completion percent |
 | `GET /api/work-orders/{id}/nearby-providers` | Providers in the same state as the work order, highest score first, without the assigned provider, or an empty array |
 | `GET /api/work-orders/{id}/expenses` | Work order expenses, newest first; an empty array if there are none |
