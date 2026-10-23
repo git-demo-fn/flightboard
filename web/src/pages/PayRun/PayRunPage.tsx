@@ -4,6 +4,11 @@ import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import Checkbox from '@mui/material/Checkbox'
 import CircularProgress from '@mui/material/CircularProgress'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogTitle from '@mui/material/DialogTitle'
+import Divider from '@mui/material/Divider'
 import Link from '@mui/material/Link'
 import Table from '@mui/material/Table'
 import TableBody from '@mui/material/TableBody'
@@ -14,12 +19,12 @@ import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
 import { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
-import { payApi } from '../../api/client'
+import { api, payApi } from '../../api/client'
 import { useAsync, useWorkOrders } from '../../api/hooks'
-import type { PayRunQuote, PayRunQuoteItem, WorkOrder } from '../../api/types'
+import type { PayRunQuote, PayRunQuoteItem, PayRunResult, WorkOrder } from '../../api/types'
 import { PageHeader } from '../../components/PageHeader'
 import { formatDate, formatMoney } from '../../lib/format'
-import { payableWorkOrders, selectedTotal, toQuoteItems } from '../../lib/payRun'
+import { payableWorkOrders, payButtonLabel, selectedTotal, toQuoteItems, workOrderCount } from '../../lib/payRun'
 import { colors } from '../../theme'
 
 async function loadQuotes(items: PayRunQuoteItem[]): Promise<PayRunQuote> {
@@ -35,17 +40,40 @@ async function loadQuotes(items: PayRunQuoteItem[]): Promise<PayRunQuote> {
   }
 }
 
-function PayRunTable({ payable }: { payable: WorkOrder[] }) {
+function PayRunTable({ payable, onPaid }: {
+  payable: WorkOrder[]
+  onPaid: (result: PayRunResult, total: number) => void
+}) {
   const ids = payable.map((wo) => wo.id)
   const items = toQuoteItems(payable)
   const [selected, setSelected] = useState(() => new Set(ids))
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [runError, setRunError] = useState<string | null>(null)
   const { data: quote, error, loading } = useAsync(
     () => loadQuotes(items),
     JSON.stringify(items),
   )
   const allSelected = selected.size === payable.length
+  const total = quote ? selectedTotal(quote, selected) : 0
+  const selectedOrders = payable.filter((wo) => selected.has(wo.id))
   const moneyText = (amount?: number) =>
     loading ? '...' : error || amount === undefined ? '--' : formatMoney(amount)
+
+  async function markAsPaid() {
+    if (running || loading || error || !quote || !selected.size) return
+    setRunning(true)
+    setRunError(null)
+    try {
+      const result = await api.payRun(selectedOrders.map((wo) => wo.id))
+      setDialogOpen(false)
+      onPaid(result, total)
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRunning(false)
+    }
+  }
 
   return (
     <>
@@ -119,15 +147,56 @@ function PayRunTable({ payable }: { payable: WorkOrder[] }) {
             <Typography sx={{ fontSize: 18, fontWeight: 600 }}>
               {moneyText(quote ? selectedTotal(quote, selected) : undefined)}
             </Typography>
+            <Button
+              variant="contained"
+              disabled={!selected.size || loading || !!error || running}
+              onClick={() => { setRunError(null); setDialogOpen(true) }}
+            >
+              {payButtonLabel(selected.size)}
+            </Button>
           </Box>
         </Box>
       </Card>
+      <Dialog
+        open={dialogOpen}
+        onClose={() => { if (!running) setDialogOpen(false) }}
+        maxWidth="sm"
+        fullWidth
+        aria-labelledby="pay-run-dialog-title"
+      >
+        <DialogTitle id="pay-run-dialog-title">Mark {workOrderCount(selected.size)} as Paid?</DialogTitle>
+        <DialogContent>
+          <Typography color="text.secondary" sx={{ mb: 3 }}>
+            Each work order moves to Paid. You cannot undo this.
+          </Typography>
+          {dialogOpen && selectedOrders.map((wo) => (
+            <Box key={wo.id} sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr auto', sm: 'auto 1fr auto' }, gap: 1, mb: 2, alignItems: 'start' }}>
+              <Typography sx={{ color: colors.primary, fontWeight: 600 }}>WO {wo.id}</Typography>
+              <Typography sx={{ gridColumn: { xs: 1, sm: 'auto' }, overflowWrap: 'anywhere' }}>{wo.title}</Typography>
+              <Typography sx={{ gridColumn: { xs: 2, sm: 'auto' }, gridRow: { xs: '1 / span 2', sm: 'auto' }, textAlign: 'right' }}>
+                {formatMoney(quote?.items.find((item) => item.id === wo.id)?.total ?? 0)}
+              </Typography>
+            </Box>
+          ))}
+          <Divider />
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
+            <Typography sx={{ fontWeight: 600 }}>Total</Typography>
+            <Typography sx={{ fontWeight: 600 }}>{formatMoney(total)}</Typography>
+          </Box>
+          {runError && <Alert severity="error" sx={{ mt: 2 }}>{runError}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={running} onClick={() => setDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" disabled={running} onClick={markAsPaid}>Mark as Paid</Button>
+        </DialogActions>
+      </Dialog>
     </>
   )
 }
 
 export function PayRunPage() {
-  const { data, error, loading } = useWorkOrders()
+  const { data, error, loading, reload } = useWorkOrders()
+  const [success, setSuccess] = useState<string | null>(null)
   const payable = payableWorkOrders(data ?? [])
 
   return (
@@ -142,12 +211,20 @@ export function PayRunPage() {
         <Typography sx={{ fontSize: 13, color: colors.titleGray }}>
           Approved work orders, with totals from the pay service.
         </Typography>
+        {success && <Alert severity="success">{success}</Alert>}
         {error ? (
           <Alert severity="error">Could not load work orders: {error.message}</Alert>
         ) : loading ? (
           <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress size={28} /></Box>
         ) : payable.length ? (
-          <PayRunTable key={payable.map((wo) => wo.id).join(',')} payable={payable} />
+          <PayRunTable
+            key={payable.map((wo) => wo.id).join(',')}
+            payable={payable}
+            onPaid={(result, total) => {
+              setSuccess(`Paid ${workOrderCount(result.count)} \u00b7 ${formatMoney(total)}`)
+              reload()
+            }}
+          />
         ) : (
           <Card sx={{ p: 4, textAlign: 'center', color: colors.iconGray }}>
             No approved work orders to pay.

@@ -1,4 +1,4 @@
-import type { Expense, NewWorkOrder, Pay, PayQuote, PayRunQuote, PayRunQuoteItem, Provider, Status, WorkOrder } from './types'
+import type { Expense, NewWorkOrder, Pay, PayQuote, PayRunQuote, PayRunQuoteItem, PayRunResult, Provider, Status, WorkOrder } from './types'
 
 /** ApiError carries the HTTP status and the server's error message. */
 export class ApiError extends Error {
@@ -33,6 +33,7 @@ export const api = {
   createWorkOrder: (wo: NewWorkOrder) => post<WorkOrder>('/api/work-orders', wo),
   setStatus: (id: number, status: Status) =>
     post<WorkOrder>(`/api/work-orders/${id}/status`, { status }),
+  payRun: (ids: number[]) => post<PayRunResult>('/api/work-orders/pay-run', { ids }),
   setTaskDone: (id: number, taskId: string, done: boolean) =>
     request<WorkOrder>(`/api/work-orders/${id}/tasks/${taskId}`, {
       method: 'PATCH',

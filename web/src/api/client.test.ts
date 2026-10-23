@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, payApi } from './client'
-import type { Expense, PayQuote, PayRunQuote, PayRunQuoteItem } from './types'
+import type { Expense, PayQuote, PayRunQuote, PayRunQuoteItem, PayRunResult } from './types'
 import { makeWorkOrder } from '../test/fixtures'
 
 const workOrder = makeWorkOrder()
@@ -156,6 +156,35 @@ describe('pay run quotes', () => {
     const result = payApi.quotes(items)
     await expect(result).rejects.toBeInstanceOf(ApiError)
     await expect(result).rejects.toMatchObject({ status: 400, message: 'Invalid quote items' })
+  })
+})
+
+describe('pay run', () => {
+  it('posts selected ids and returns the paid work orders', async () => {
+    const paidAt = '2026-10-23T12:00:00Z'
+    const response: PayRunResult = {
+      count: 2,
+      paidAt,
+      workOrders: [9631821, 9631822].map((id) => ({ id, title: `WO ${id}`, status: 'Paid', paidAt })),
+    }
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(response)))
+
+    await expect(api.payRun([9631821, 9631822])).resolves.toEqual(response)
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith('/api/work-orders/pay-run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"ids":[9631821,9631822]}',
+    })
+  })
+
+  it('propagates a conflict with its status and server message', async () => {
+    const message = 'conflict: work order 9631821 is Paid, not Approved'
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: message }), { status: 409 }))
+
+    const result = api.payRun([9631821, 9631822])
+    await expect(result).rejects.toBeInstanceOf(ApiError)
+    await expect(result).rejects.toMatchObject({ status: 409, message })
   })
 })
 

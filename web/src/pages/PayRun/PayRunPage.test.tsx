@@ -1,17 +1,17 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useReducer } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, payApi } from '../../api/client'
 import * as hooks from '../../api/hooks'
-import type { PayRunQuote, WorkOrder } from '../../api/types'
+import type { PayRunQuote, PayRunResult, WorkOrder } from '../../api/types'
 import { formatDate } from '../../lib/format'
 import { makeWorkOrder, provider } from '../../test/fixtures'
 import { renderAt } from '../../test/render'
 import { PayRunPage } from './PayRunPage'
 
 vi.mock('../../api/client', () => ({
-  api: { listWorkOrders: vi.fn() },
+  api: { listWorkOrders: vi.fn(), payRun: vi.fn() },
   payApi: { quotes: vi.fn() },
 }))
 
@@ -44,13 +44,151 @@ const quote: PayRunQuote = {
   count: 2,
   total: 356,
 }
+const paidAt = '2026-10-23T12:00:00Z'
+const paidResult: PayRunResult = {
+  count: 2,
+  paidAt,
+  workOrders: [printer, phones].map(({ id, title }) => ({ id, title, status: 'Paid', paidAt })),
+}
 
 beforeEach(() => {
   vi.mocked(api.listWorkOrders).mockReset().mockResolvedValue([phones, workDone, printer])
   vi.mocked(payApi.quotes).mockReset().mockResolvedValue(quote)
+  vi.mocked(api.payRun).mockReset().mockResolvedValue(paidResult)
 })
 
 describe('PayRunPage', () => {
+  it('labels the pay button for the selection and disables it when no rows are selected', async () => {
+    renderAt(<PayRunPage />)
+    await screen.findByText('$356.00')
+    expect(screen.getByRole('button', { name: 'Pay 2 work orders' })).toBeEnabled()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select WO 9631822' }))
+    expect(screen.getByRole('button', { name: 'Pay 1 work order' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Pay 1 work order' }))
+    const dialog = screen.getByRole('dialog', { name: 'Mark 1 work order as Paid?' })
+    expect(within(dialog).getByText('WO 9631821')).toBeInTheDocument()
+    expect(within(dialog).queryByText('WO 9631822')).not.toBeInTheDocument()
+    expect(within(dialog).getAllByText('$140.00')).toHaveLength(2)
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select WO 9631821' }))
+    expect(screen.getByRole('button', { name: 'Pay 0 work orders' })).toBeDisabled()
+  })
+
+  it('shows the sorted confirmation details and cancels without paying', async () => {
+    renderAt(<PayRunPage />)
+    await screen.findByText('$356.00')
+    await userEvent.click(screen.getByRole('button', { name: 'Pay 2 work orders' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Mark 2 work orders as Paid?' })
+    const content = within(dialog)
+    expect(content.getByText('Each work order moves to Paid. You cannot undo this.')).toBeInTheDocument()
+    expect(content.getAllByText(/^WO /).map((element) => element.textContent)).toEqual(['WO 9631821', 'WO 9631822'])
+    expect(content.getByText(printer.title)).toBeInTheDocument()
+    expect(content.getByText(phones.title)).toBeInTheDocument()
+    expect(content.getByText('$140.00')).toBeInTheDocument()
+    expect(content.getByText('$216.00')).toBeInTheDocument()
+    expect(content.getByText('Total')).toBeInTheDocument()
+    expect(content.getByText('$356.00')).toBeInTheDocument()
+
+    await userEvent.click(content.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(api.payRun).not.toHaveBeenCalled()
+    expect(api.listWorkOrders).toHaveBeenCalledTimes(1)
+  })
+
+  it('pays the selected ids in order, shows success, and reloads the list', async () => {
+    vi.mocked(api.listWorkOrders)
+      .mockResolvedValueOnce([phones, workDone, printer])
+      .mockResolvedValueOnce([printer, phones].map((wo) => ({ ...wo, status: 'Paid', paidAt })))
+    renderAt(<PayRunPage />)
+    await screen.findByText('$356.00')
+    await userEvent.click(screen.getByRole('button', { name: 'Pay 2 work orders' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Mark as Paid' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Paid 2 work orders \u00b7 $356.00')
+    expect(api.payRun).toHaveBeenCalledExactlyOnceWith([9631821, 9631822])
+    expect(await screen.findByText('No approved work orders to pay.')).toBeInTheDocument()
+    expect(api.listWorkOrders).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('pays only the selected work order using its total and the returned count', async () => {
+    vi.mocked(api.payRun).mockResolvedValue({ ...paidResult, count: 1, workOrders: [paidResult.workOrders[1]] })
+    vi.mocked(api.listWorkOrders)
+      .mockResolvedValueOnce([phones, printer])
+      .mockResolvedValueOnce([printer, { ...phones, status: 'Paid', paidAt }])
+    renderAt(<PayRunPage />)
+    await screen.findByText('$356.00')
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Select WO 9631821' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Pay 1 work order' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Mark as Paid' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Paid 1 work order \u00b7 $216.00')
+    expect(api.payRun).toHaveBeenCalledExactlyOnceWith([9631822])
+    await waitFor(() => expect(screen.getByText('1 of 1 selected')).toBeInTheDocument())
+    expect(api.listWorkOrders).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the dialog and selection on a conflict without reloading, and allows retry', async () => {
+    const message = 'conflict: work order 9631821 is Paid, not Approved'
+    vi.mocked(api.payRun).mockRejectedValueOnce(new Error(message))
+    renderAt(<PayRunPage />)
+    await screen.findByText('$356.00')
+    await userEvent.click(screen.getByRole('button', { name: 'Pay 2 work orders' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Mark as Paid' }))
+
+    const dialog = screen.getByRole('dialog', { name: 'Mark 2 work orders as Paid?' })
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(message)
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'Mark as Paid' })).toBeEnabled()
+    expect(api.listWorkOrders).toHaveBeenCalledTimes(1)
+    expect(payApi.quotes).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('2 of 2 selected')).toBeInTheDocument()
+    expect(within(dialog).getByText('$356.00')).toBeInTheDocument()
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Mark as Paid' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByRole('alert')).toHaveTextContent('Paid 2 work orders \u00b7 $356.00')
+    expect(api.payRun).toHaveBeenCalledTimes(2)
+  })
+
+  it('disables payment controls and prevents dismissal during the run', async () => {
+    let resolve!: (value: PayRunResult) => void
+    vi.mocked(api.payRun).mockReturnValue(new Promise((done) => { resolve = done }))
+    renderAt(<PayRunPage />)
+    await screen.findByText('$356.00')
+    await userEvent.click(screen.getByRole('button', { name: 'Pay 2 work orders' }))
+    const payButton = screen.getByRole('button', { name: 'Pay 2 work orders', hidden: true })
+    await userEvent.click(screen.getByRole('button', { name: 'Mark as Paid' }))
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Mark as Paid' })).toBeDisabled()
+    expect(payButton).toBeDisabled()
+    await userEvent.keyboard('{Escape}')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Mark as Paid' }))
+    expect(api.payRun).toHaveBeenCalledTimes(1)
+    expect(api.listWorkOrders).toHaveBeenCalledTimes(1)
+
+    await act(async () => resolve(paidResult))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('disables payment until the quote loads and when the quote fails', async () => {
+    let reject!: (error: Error) => void
+    vi.mocked(payApi.quotes).mockReturnValue(new Promise((_resolve, fail) => { reject = fail }))
+    renderAt(<PayRunPage />)
+    expect(await screen.findByRole('button', { name: 'Pay 2 work orders' })).toBeDisabled()
+
+    await act(async () => reject(new Error('pay down')))
+    expect(screen.getByRole('alert')).toHaveTextContent('Pay service unavailable: pay down')
+    expect(screen.getByRole('button', { name: 'Pay 2 work orders' })).toBeDisabled()
+    expect(api.payRun).not.toHaveBeenCalled()
+  })
+
   it('quotes only approved work orders once and shows their totals and details', async () => {
     renderAt(<PayRunPage />)
     await screen.findByText('$356.00')
