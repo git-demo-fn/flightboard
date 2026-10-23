@@ -5,11 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../../api/client'
 import type { WeekWorkOrder, WorkOrderWeek } from '../../api/types'
 import { addDays, dayLabel, weekStart } from '../../lib/week'
-import { makeWorkOrder } from '../../test/fixtures'
+import { makeWorkOrder, provider } from '../../test/fixtures'
 import { renderAt } from '../../test/render'
 import { SchedulePage } from './SchedulePage'
 
-vi.mock('../../api/client', () => ({ api: { getWeek: vi.fn() } }))
+vi.mock('../../api/client', () => ({ api: { getWeek: vi.fn(), listProviders: vi.fn() } }))
 
 const assigned = makeWorkOrder({
   schedule: { start: '2026-10-19T14:00:00Z', end: '2026-10-19T18:00:00Z' },
@@ -37,9 +37,86 @@ function Location() {
 
 beforeEach(() => {
   vi.mocked(api.getWeek).mockReset().mockImplementation(async (start) => weekFixture(start))
+  vi.mocked(api.listProviders).mockReset().mockResolvedValue([
+    { ...provider, id: 'p-101', name: 'Dana Whitfield', score: 99 },
+    { ...provider, id: 'p-102', name: 'Marcus Oyelaran', score: 98 },
+  ])
 })
 
 describe('SchedulePage', () => {
+  it('lists providers in API order and filters the week when one is selected', async () => {
+    renderAt(<><SchedulePage /><Location /></>, {
+      path: '/schedule', url: '/schedule?start=2026-10-19&other=kept',
+    })
+    await screen.findAllByRole('region')
+    const combobox = screen.getByRole('combobox', { name: 'Provider' })
+    expect(combobox).toHaveTextContent('All providers')
+    await userEvent.click(combobox)
+    expect(screen.getAllByRole('option').map((option) => option.textContent))
+      .toEqual(['All providers', 'Dana Whitfield', 'Marcus Oyelaran'])
+    await userEvent.click(screen.getByRole('option', { name: 'Dana Whitfield' }))
+
+    await waitFor(() => expect(api.getWeek).toHaveBeenLastCalledWith('2026-10-19', 'p-101'))
+    expect(combobox).toHaveTextContent('Dana Whitfield')
+    expect(screen.getByLabelText('Current address'))
+      .toHaveTextContent('?start=2026-10-19&other=kept&providerId=p-101')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Next week' }))
+    await waitFor(() => expect(api.getWeek).toHaveBeenLastCalledWith('2026-10-26', 'p-101'))
+  })
+
+  it('removes the provider filter while keeping the week and other parameters', async () => {
+    renderAt(<><SchedulePage /><Location /></>, {
+      path: '/schedule', url: '/schedule?start=2026-10-19&providerId=p-101&other=kept',
+    })
+    await screen.findAllByRole('region')
+    await userEvent.click(screen.getByRole('combobox', { name: 'Provider' }))
+    await userEvent.click(screen.getByRole('option', { name: 'All providers' }))
+
+    await waitFor(() => expect(api.getWeek).toHaveBeenLastCalledWith('2026-10-19', undefined))
+    expect(screen.getByRole('combobox', { name: 'Provider' })).toHaveTextContent('All providers')
+    expect(screen.getByLabelText('Current address').textContent).toBe('?start=2026-10-19&other=kept')
+  })
+
+  it('loads the provider from the address on the first request', async () => {
+    renderAt(<SchedulePage />, {
+      path: '/schedule', url: '/schedule?start=2026-10-19&providerId=p-102',
+    })
+    await screen.findAllByRole('region')
+
+    expect(api.getWeek).toHaveBeenCalledExactlyOnceWith('2026-10-19', 'p-102')
+    expect(screen.getByRole('combobox', { name: 'Provider' })).toHaveTextContent('Marcus Oyelaran')
+  })
+
+  it.each([
+    ['Next week', '2026-10-26'],
+    ['Previous week', '2026-10-12'],
+    ['This week', weekStart(new Date())],
+  ])('keeps the selected provider when navigating with %s', async (button, start) => {
+    renderAt(<><SchedulePage /><Location /></>, {
+      path: '/schedule', url: '/schedule?start=2026-10-19&providerId=p-102',
+    })
+    await screen.findAllByRole('region')
+    await userEvent.click(screen.getByRole('button', { name: button }))
+
+    await waitFor(() => expect(api.getWeek).toHaveBeenLastCalledWith(start, 'p-102'))
+    expect(screen.getByLabelText('Current address').textContent).toBe(`?start=${start}&providerId=p-102`)
+    expect(screen.getByRole('combobox', { name: 'Provider' })).toHaveTextContent('Marcus Oyelaran')
+    expect(api.listProviders).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the week visible and offers only All providers if providers fail to load', async () => {
+    vi.mocked(api.listProviders).mockRejectedValue(new Error('providers unavailable'))
+    renderAt(<SchedulePage />, { path: '/schedule', url: '/schedule?start=2026-10-19' })
+    expect(await screen.findAllByRole('region')).toHaveLength(7)
+    expect(screen.getByText(/2 work orders/)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('combobox', { name: 'Provider' }))
+
+    expect(screen.getAllByRole('option')).toHaveLength(1)
+    expect(screen.getByRole('option', { name: 'All providers' })).toBeInTheDocument()
+  })
+
   it.each([
     ['Next week', '2026-10-26', 'Oct 26 - Nov 1, 2026'],
     ['Previous week', '2026-10-12', 'Oct 12 - Oct 18, 2026'],
