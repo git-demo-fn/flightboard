@@ -3,11 +3,14 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Card from '@mui/material/Card'
 import CircularProgress from '@mui/material/CircularProgress'
+import MenuItem from '@mui/material/MenuItem'
+import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { useSearchParams } from 'react-router-dom'
-import { useWeek } from '../../api/hooks'
+import { api } from '../../api/client'
+import { useAsync, useWeek } from '../../api/hooks'
 import { PageHeader } from '../../components/PageHeader'
 import { addDays, dayLabel, isISODate, weekRangeLabel, weekStart } from '../../lib/week'
 import { colors } from '../../theme'
@@ -17,7 +20,19 @@ export function SchedulePage() {
   const [params, setParams] = useSearchParams()
   const requestedStart = params.get('start')
   const start = requestedStart && isISODate(requestedStart) ? requestedStart : weekStart(new Date())
-  const { data, error, loading } = useWeek(start)
+  const providerId = params.get('providerId') || ''
+  const { data, error, loading } = useWeek(start, providerId || undefined)
+  const { data: providers } = useAsync(api.listProviders, 'providers')
+
+  function selectProvider(nextProviderId: string) {
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set('start', start)
+      if (nextProviderId) next.set('providerId', nextProviderId)
+      else next.delete('providerId')
+      return next
+    })
+  }
 
   function selectWeek(nextStart: string) {
     setParams((current) => {
@@ -40,6 +55,21 @@ export function SchedulePage() {
           }
           actions={
             <>
+              <TextField
+                select
+                label="Provider"
+                size="small"
+                sx={{ minWidth: 220, bgcolor: '#FFFFFF' }}
+                SelectProps={{ displayEmpty: true }}
+                InputLabelProps={{ shrink: true }}
+                value={providers?.some((provider) => provider.id === providerId) ? providerId : ''}
+                onChange={(event) => selectProvider(event.target.value)}
+              >
+                <MenuItem value="">All providers</MenuItem>
+                {providers?.map((provider) => (
+                  <MenuItem key={provider.id} value={provider.id}>{provider.name}</MenuItem>
+                ))}
+              </TextField>
               <Button variant="outlined" startIcon={<ChevronLeftIcon />} onClick={() => selectWeek(addDays(start, -7))}>
                 Previous week
               </Button>
