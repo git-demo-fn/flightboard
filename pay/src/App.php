@@ -8,7 +8,7 @@ namespace Flightboard\Pay;
  * HTTP routing for the pay service, kept free of globals so tests can call it.
  *
  * Routes:
- *   GET  /health  -> {"status":"ok"}
+ *   GET  /health  -> {"status":"ok","service":"pay"}
  *   POST /quote   -> a quote from PayCalculator::quote()
  *   POST /quotes  -> batch labor and approved expense totals
  */
@@ -24,7 +24,7 @@ final class App
         $route = $method . ' ' . rtrim($path, '/');
 
         return match ($route) {
-            'GET /health' => [200, ['status' => 'ok']],
+            'GET /health' => [200, ['status' => 'ok', 'service' => 'pay']],
             'POST /quote' => $this->quote($body),
             'POST /quotes' => $this->quotes($body),
             default => [404, ['error' => 'not found']],
