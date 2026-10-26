@@ -15,7 +15,7 @@ final class AppTest extends TestCase
         [$status, $body] = (new App())->handle('GET', '/health', '');
 
         self::assertSame(200, $status);
-        self::assertSame(['status' => 'ok'], $body);
+        self::assertSame(['status' => 'ok', 'service' => 'pay'], $body);
     }
 
     public function testQuote(): void
