@@ -62,6 +62,13 @@ func TestHealth(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d", rec.Code)
 	}
+	got := decode[map[string]string](t, rec)
+	if got["status"] != "ok" {
+		t.Errorf("status = %q, want %q", got["status"], "ok")
+	}
+	if got["service"] != "flightboard-api" {
+		t.Errorf("service = %q, want %q", got["service"], "flightboard-api")
+	}
 }
 
 func TestListWorkOrders(t *testing.T) {

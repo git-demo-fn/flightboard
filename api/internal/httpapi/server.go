@@ -93,7 +93,7 @@ func (s *Server) view(w workorder.WorkOrder) workOrderView {
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "flightboard-api"})
 }
 
 func (s *Server) listWorkOrders(w http.ResponseWriter, r *http.Request) {
